@@ -549,10 +549,20 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
 }
 
 /* ---------- Ürün teknik tablo + SSS ---------- */
-.spec-tablo { width: 100%; border-collapse: collapse; margin: 22px 0 6px; font-size: .93rem; }
-.spec-tablo th, .spec-tablo td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.spec-tablo th { width: 38%; color: var(--heading); font-weight: 700; background: var(--soft); }
-.spec-tablo tr:first-child th { border-radius: 10px 0 0 0; }
+.spec-tablo {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  margin: 22px 0 6px; font-size: .92rem;
+  border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  box-shadow: 0 4px 14px -6px rgba(8, 54, 59, .08);
+}
+.spec-tablo th, .spec-tablo td { text-align: left; padding: 13px 18px; vertical-align: top; }
+.spec-tablo th {
+  width: 40%; color: var(--heading); font-weight: 600; font-size: .88rem;
+  background: var(--soft); border-right: 1px solid var(--line);
+}
+.spec-tablo td { color: #3f5254; font-weight: 500; }
+.spec-tablo tr:not(:last-child) th, .spec-tablo tr:not(:last-child) td { border-bottom: 1px solid var(--line); }
+.spec-tablo tr:nth-child(even) td { background: #fafdfe; }
 .sss-bolum details {
   border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px;
   background: var(--white); overflow: hidden;
@@ -565,7 +575,10 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
 .sss-bolum summary::after { content: "+"; color: var(--accent); font-size: 1.3rem; font-weight: 800; flex: none; }
 .sss-bolum details[open] summary::after { content: "−"; }
 .sss-bolum details[open] summary { border-bottom: 1px solid var(--line); }
-.sss-bolum details p { padding: 14px 20px 18px; }
+.sss-bolum details p {
+  padding: 14px 20px 18px 38px;
+  font-size: .92rem; color: #7d8c8e; line-height: 1.75;
+}
 
 /* ---------- Yardımcılar ---------- */
 .text-center { text-align: center; }
