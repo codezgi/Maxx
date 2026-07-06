@@ -414,6 +414,34 @@ ${opts.leaflet ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/d
   .onay-cizelge { display: flex; gap: 18px; font-size: .82rem; margin-top: 6px; }
   .onay-cizelge .ok { color: #14734a; font-weight: 700; }
   .onay-cizelge .bekliyor { color: #8a6100; font-weight: 700; }
+  .sepet-fab { position: fixed; right: 22px; bottom: 22px; z-index: 300;
+    background: linear-gradient(135deg, #00b9ce, #008a9b); color: #fff; border: 0;
+    border-radius: 999px; padding: 15px 24px; font-weight: 700; font-size: 1rem;
+    box-shadow: 0 12px 30px -8px rgba(0, 138, 155, .65); display: flex; gap: 10px; align-items: center;
+    cursor: pointer; transition: transform .2s; }
+  .sepet-fab:hover { transform: translateY(-2px); }
+  .fab-badge { background: #fff; color: var(--primary); border-radius: 999px; min-width: 26px; height: 26px;
+    display: grid; place-items: center; font-size: .85rem; font-weight: 800; padding: 0 7px; }
+  .sepet-fab.zipla { animation: fabzip .45s ease; }
+  @keyframes fabzip { 30% { transform: scale(1.18); } 60% { transform: scale(.94); } }
+  .ucan-img { position: fixed; z-index: 500; object-fit: cover; border-radius: 12px;
+    pointer-events: none; transition: all .7s cubic-bezier(.3, .7, .4, 1);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, .25); }
+  .sepet-satir { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .sepet-satir img { width: 56px; height: 42px; object-fit: cover; border-radius: 8px; background: var(--soft); }
+  .sepet-satir strong { flex: 1; font-size: .9rem; color: var(--heading); }
+  .adet-step { display: flex; align-items: center; gap: 8px; }
+  .adet-step button { width: 30px; height: 30px; border-radius: 8px; background: var(--soft); font-weight: 800; color: var(--primary); }
+  .adet-step button:hover { background: var(--accent); color: #fff; }
+  .sepet-kaldir { color: #b23333; font-weight: 700; padding: 4px 8px; }
+  .fiyat-tablo td, .fiyat-tablo th { padding: 8px 10px; }
+  .fiyat-tablo input.birim { width: 110px; border: 1.5px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .fiyat-ozet { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; margin-top: 12px; font-size: .95rem; }
+  .fiyat-ozet .genel { font-size: 1.2rem; font-weight: 800; color: var(--heading); }
+  @media print {
+    .portal-header, .yazdirma-gizle, .sepet-fab { display: none !important; }
+    body { background: #fff; } .kutu { border: 0; box-shadow: none; padding: 0; }
+  }
 </style>
 </head>
 <body>
@@ -461,6 +489,11 @@ tr: {
   fiyat_arayin: "", en_az_bir: "Sepetiniz boş — en az bir ürün ekleyin.",
   aktivasyon: "Hesap Aktivasyonu", akt_alt: "Başvurunuz onaylandı! Portala giriş için bir parola belirleyin.",
   p1: "Parola (en az 8 karakter)", p2: "Parola (tekrar)", etkinlestir: "Hesabı Etkinleştir",
+  sepet_bak: "Sepeti İncele", sepet_onayla: "Sipariş İsteğini Onayla ve Gönder", kaldir: "Kaldır",
+  teklif_dokum: "Teklif Dökümünü Görüntüle", pdf_indir: "PDF Olarak Kaydet / Yazdır",
+  ara_toplam: "Ara Toplam", indirim_lbl: "İndirim", genel_toplam: "Genel Toplam",
+  birim_lbl: "Birim Fiyat", satir_lbl: "Tutar", teklif_baslik: "Fiyat Teklifi", kapat: "Kapat",
+  indirim_uygulandi: "indirim uygulandı",
 },
 en: {
   code: "en", basvuru: "Dealer Application", giris: "Dealer Login", portal: "Dealer Portal",
@@ -487,6 +520,11 @@ en: {
   fiyat_arayin: "", en_az_bir: "Your cart is empty — add at least one product.",
   aktivasyon: "Account Activation", akt_alt: "Your application is approved! Set a password to log in.",
   p1: "Password (min. 8 characters)", p2: "Password (repeat)", etkinlestir: "Activate Account",
+  sepet_bak: "Review Cart", sepet_onayla: "Confirm & Send Order Request", kaldir: "Remove",
+  teklif_dokum: "View Quote Breakdown", pdf_indir: "Save as PDF / Print",
+  ara_toplam: "Subtotal", indirim_lbl: "Discount", genel_toplam: "Grand Total",
+  birim_lbl: "Unit Price", satir_lbl: "Amount", teklif_baslik: "Price Quote", kapat: "Close",
+  indirim_uygulandi: "discount applied",
 },
 };
 
@@ -624,17 +662,19 @@ function bayiPortalPage(dealer, lang, msg) {
   const fiyatAcik = store.settings.fiyatGoster;
   const myOrders = store.orders.filter((o) => o.dealerId === dealer.id).slice().reverse();
 
-  // Fiyat teklifi bekleyen onaylar
   const teklifler = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).map((o) => `
     <div class="msg msg-info" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${paraFmt(o.fiyat)}</strong></span>
-      <form method="post" action="/bayi/onayla/" style="margin-left:auto">
-        <input type="hidden" name="id" value="${o.id}">
-        <button class="btn btn-accent btn-sm">${T.onayla}</button>
-      </form>
+      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${paraFmt(o.fiyat)}</strong>
+        ${o.indirim ? `<small>(%${o.indirim} ${T.indirim_uygulandi})</small>` : ""}</span>
+      <span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        ${o.seffaf ? `<a class="btn btn-outline btn-sm" href="/bayi/teklif/?id=${o.id}">${T.teklif_dokum}</a>` : ""}
+        <form method="post" action="/bayi/onayla/">
+          <input type="hidden" name="id" value="${o.id}">
+          <button class="btn btn-accent btn-sm">${T.onayla}</button>
+        </form>
+      </span>
     </div>`).join("");
 
-  // Teslim edilen + teşekkür edilmemiş
   const tesekkurler = myOrders.filter((o) => o.durum === "teslim" && !o.tesekkur).map((o) => `
     <div class="kutu">
       <h2>${T.tesekkur_baslik} <small style="font-weight:400">(${esc(o.no)})</small></h2>
@@ -655,8 +695,8 @@ function bayiPortalPage(dealer, lang, msg) {
           <strong>${esc(name)}</strong>
           ${fiyat ? `<span class="uk-fiyat">${paraFmt(fiyat)}</span>` : ""}
           <div class="uk-adet">
-            <input type="number" min="1" max="99999" value="1" id="adet-${slug}" aria-label="${T.adet}">
-            <button type="button" class="btn btn-outline btn-sm" onclick="sepeteEkle('${slug}')">${T.sepete_ekle} +</button>
+            <input type="number" min="1" max="99999" value="1" id="adet-${slug}" aria-label="adet">
+            <button type="button" class="btn btn-outline btn-sm" onclick="sepeteEkle('${slug}', this)">${T.sepete_ekle} +</button>
           </div>
         </div>
       </div>`;
@@ -664,7 +704,10 @@ function bayiPortalPage(dealer, lang, msg) {
 
   const orderRows = myOrders.map((o) => {
     let durumHtml = `<span class="durum durum-${DURUM_RENK[o.durum]}">${D[o.durum]}</span>`;
-    if (["hazirlaniyor", "kargoda", "teslim"].includes(o.durum)) durumHtml = kargoStepper(o.durum, lang);
+    if (["hazirlaniyor", "kargoda", "teslim"].includes(o.durum)) {
+      durumHtml = kargoStepper(o.durum, lang);
+      if (o.kargoTakip) durumHtml += `<small>${lang === "en" ? "Tracking" : "Takip"}: <span class="kod">${esc(o.kargoTakip)}</span></small>`;
+    }
     else if (o.durum === "fiyat_bekliyor") durumHtml += `<br><small>${T.fiyat_bekliyor_msg}</small>`;
     else if (o.durum === "fiyat_verildi") {
       durumHtml += `<div class="onay-cizelge">
@@ -672,10 +715,13 @@ function bayiPortalPage(dealer, lang, msg) {
         <span class="${o.adminOnay ? "ok" : "bekliyor"}">${o.adminOnay ? "✓ Maxx Global" : "• " + T.onay_bekle_admin}</span>
       </div>`;
     }
+    const fiyatHtml = o.fiyat
+      ? `<strong>${paraFmt(o.fiyat)}</strong>` + (o.seffaf ? `<br><a href="/bayi/teklif/?id=${o.id}"><small>${T.teklif_dokum}</small></a>` : "")
+      : "—";
     return `<tr>
       <td><strong>${esc(o.no)}</strong><br><small>${new Date(o.tarih).toLocaleDateString(lang==="en"?"en-GB":"tr-TR")}</small></td>
       <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}${o.not ? `<br><small>${esc(o.not)}</small>` : ""}</td>
-      <td>${o.fiyat ? "<strong>" + paraFmt(o.fiyat) + "</strong>" : "—"}</td>
+      <td>${fiyatHtml}</td>
       <td style="min-width:290px">${durumHtml}</td>
     </tr>`;
   }).join("");
@@ -691,53 +737,139 @@ function bayiPortalPage(dealer, lang, msg) {
     <h2>${T.urunler}</h2>
     <div class="urun-grid">${urunKartlari}</div>
   </div>
-  <div class="sepet-bar">
-  <div class="sepet-kutu kutu" style="border:0">
-    <h2>🛒 ${T.sepet}</h2>
-    <div id="sepetIcerik"><p class="sepet-bos">${T.sepet_bos}</p></div>
-    <form id="siparisForm" method="post" action="/bayi/siparis/" class="mt-2">
-      <input type="hidden" name="sepet" id="sepetJson">
-      <p class="form-field"><label for="not" style="color:rgba(255,255,255,.85)">${T.not_lbl}</label>
-      <textarea id="not" name="not" rows="2" maxlength="1000" style="width:100%;border:0;border-radius:10px;padding:10px"></textarea></p>
-      <p class="mt-2"><button class="btn btn-light" type="submit">${T.istek_olustur} →</button></p>
-    </form>
-  </div>
-  </div>
   <div class="kutu">
     <h2>${T.siparislerim}</h2>
     ${myOrders.length ? `<table class="liste"><thead><tr><th>${T.no_col}</th><th>${T.urun_col}</th><th>${T.toplam}</th><th>${T.durum}</th></tr></thead><tbody>${orderRows}</tbody></table>` : `<p>${T.siparis_yok}</p>`}
-  </div>`;
+  </div>
+
+  <button type="button" id="sepetFab" class="sepet-fab" onclick="sepetAc()" aria-label="${T.sepet}">
+    🛒 ${T.sepet} <span id="sepetSayi" class="fab-badge">0</span>
+  </button>
+
+  <dialog class="dlg" id="dlg-sepet">
+    <div class="dlg-head"><h2>🛒 ${T.sepet}</h2>
+      <button type="button" class="dlg-kapat" onclick="this.closest('dialog').close()" aria-label="${T.kapat}">✕</button></div>
+    <div class="dlg-govde">
+      <div id="sepetListe"><p class="sepet-bos" style="color:var(--text)">${T.sepet_bos}</p></div>
+      <form id="siparisForm" method="post" action="/bayi/siparis/" class="mt-2">
+        <input type="hidden" name="sepet" id="sepetJson">
+        <p class="form-field mt-2"><label for="not">${T.not_lbl}</label>
+        <textarea id="not" name="not" rows="2" maxlength="1000" style="width:100%;border:1.5px solid var(--line);border-radius:10px;padding:10px"></textarea></p>
+      </form>
+    </div>
+    <div class="dlg-alt">
+      <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('dialog').close()">${T.kapat}</button>
+      <button type="submit" form="siparisForm" class="btn btn-accent">${T.sepet_onayla} →</button>
+    </div>
+  </dialog>`;
 
   const adlar = {};
   for (const [slug, name] of PRODUCTS) adlar[slug] = name;
   const script = `<script>
     var URUNLER = ${JSON.stringify(adlar)};
     var sepet = {};
-    function sepeteEkle(slug) {
+
+    function sepeteEkle(slug, btn) {
       var n = parseInt(document.getElementById('adet-' + slug).value || '1', 10);
       if (!(n > 0)) return;
-      sepet[slug] = (sepet[slug] || 0) + Math.min(n, 99999);
-      ciz();
+      sepet[slug] = Math.min((sepet[slug] || 0) + n, 99999);
+      // görsel sepete uçsun
+      var img = btn.closest('.urun-kart').querySelector('img');
+      var fab = document.getElementById('sepetFab');
+      var r1 = img.getBoundingClientRect(), r2 = fab.getBoundingClientRect();
+      var kopya = img.cloneNode();
+      kopya.className = 'ucan-img';
+      kopya.style.cssText += 'left:' + r1.left + 'px;top:' + r1.top + 'px;width:' + r1.width + 'px;height:' + r1.height + 'px;';
+      document.body.appendChild(kopya);
+      requestAnimationFrame(function () { requestAnimationFrame(function () {
+        kopya.style.left = (r2.left + r2.width / 2 - 22) + 'px';
+        kopya.style.top = (r2.top + r2.height / 2 - 16) + 'px';
+        kopya.style.width = '44px'; kopya.style.height = '32px';
+        kopya.style.opacity = '.25'; kopya.style.borderRadius = '50%';
+      }); });
+      setTimeout(function () { kopya.remove(); }, 750);
+      badge(true);
     }
-    function sepettenCikar(slug) { delete sepet[slug]; ciz(); }
-    function ciz() {
+
+    function badge(zipla) {
+      var toplam = 0; for (var k in sepet) toplam += sepet[k];
+      document.getElementById('sepetSayi').textContent = toplam;
+      var fab = document.getElementById('sepetFab');
+      if (zipla) { fab.classList.remove('zipla'); void fab.offsetWidth; fab.classList.add('zipla'); }
+    }
+
+    function adetDegistir(slug, delta) {
+      sepet[slug] = (sepet[slug] || 0) + delta;
+      if (sepet[slug] <= 0) delete sepet[slug];
+      cizSepet(); badge(false);
+    }
+    function kaldir(slug) { delete sepet[slug]; cizSepet(); badge(false); }
+
+    function cizSepet() {
+      var kutu = document.getElementById('sepetListe');
       var k = Object.keys(sepet);
-      var kutu = document.getElementById('sepetIcerik');
-      if (!k.length) { kutu.innerHTML = '<p class="sepet-bos">${T.sepet_bos}</p>'; document.getElementById('sepetJson').value = ''; return; }
-      kutu.innerHTML = '<table>' + k.map(function (s) {
-        return '<tr><td>' + URUNLER[s] + '</td><td style="text-align:right;white-space:nowrap">' + sepet[s] + ' ${T.adet}</td>' +
-          '<td style="width:30px;text-align:right"><button type="button" class="cikar" onclick="sepettenCikar(\\'' + s + '\\')">✕</button></td></tr>';
-      }).join('') + '</table>';
+      if (!k.length) {
+        kutu.innerHTML = '<p class="sepet-bos" style="color:var(--text)">${T.sepet_bos}</p>';
+        document.getElementById('sepetJson').value = '';
+        return;
+      }
+      kutu.innerHTML = k.map(function (s) {
+        return '<div class="sepet-satir">' +
+          '<img src="/assets/img/products/' + s + '.webp" alt="">' +
+          '<strong>' + URUNLER[s] + '</strong>' +
+          '<span class="adet-step">' +
+            '<button type="button" onclick="adetDegistir(\\'' + s + '\\', -1)">−</button>' +
+            '<b>' + sepet[s] + '</b>' +
+            '<button type="button" onclick="adetDegistir(\\'' + s + '\\', 1)">+</button>' +
+          '</span>' +
+          '<button type="button" class="sepet-kaldir" onclick="kaldir(\\'' + s + '\\')" title="${T.kaldir}">✕</button>' +
+        '</div>';
+      }).join('');
       document.getElementById('sepetJson').value = JSON.stringify(sepet);
     }
+
+    function sepetAc() { cizSepet(); document.getElementById('dlg-sepet').showModal(); }
+
     document.getElementById('siparisForm').addEventListener('submit', function (e) {
       if (!Object.keys(sepet).length) { e.preventDefault(); alert('${T.en_az_bir}'); }
+      else document.getElementById('sepetJson').value = JSON.stringify(sepet);
     });
   </script>`;
   return pageShell(T.portal, body, {
     nav: `<a href="/">${T.siteye_don}</a><a href="/bayi/cikis/">${T.cikis}</a>`,
     script,
   });
+}
+
+/* Fiyat teklifi dökümü — bayi (seffaf ise) ve admin görebilir; yazdır → PDF */
+function teklifPage(o, dealer, lang, geriUrl) {
+  const T = BL[lang];
+  const rows = o.kalemler.map((k) => `
+    <tr>
+      <td><span class="u-kart"><img src="/assets/img/products/${k.slug}.webp" alt="" loading="lazy"><strong>${esc(k.ad)}</strong></span></td>
+      <td style="text-align:center">${k.adet}</td>
+      <td style="text-align:right">${k.birim ? paraFmt(k.birim) : "—"}</td>
+      <td style="text-align:right"><strong>${k.birim ? paraFmt(k.birim * k.adet) : "—"}</strong></td>
+    </tr>`).join("");
+  const body = `
+  <p class="yazdirma-gizle"><a href="${geriUrl}">← ${T.kapat}</a></p>
+  <span class="eyebrow">Maxx Global Medikal</span>
+  <h1 class="portal-title" style="font-size:1.7rem">${T.teklif_baslik} — ${esc(o.no)}</h1>
+  <p class="portal-sub">${esc(dealer.firma)} · ${new Date(o.fiyatTarihi || o.tarih).toLocaleDateString(lang === "en" ? "en-GB" : "tr-TR")}</p>
+  <div class="kutu">
+    <table class="liste fiyat-tablo">
+      <thead><tr><th>${T.urun_col}</th><th style="text-align:center">${lang === "en" ? "Qty" : "Adet"}</th><th style="text-align:right">${T.birim_lbl}</th><th style="text-align:right">${T.satir_lbl}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="fiyat-ozet">
+      <span>${T.ara_toplam}: <strong>${paraFmt(o.araToplam || o.fiyat)}</strong></span>
+      ${o.indirim ? `<span>${T.indirim_lbl} (%${o.indirim}): <strong>−${paraFmt((o.araToplam || 0) * o.indirim / 100)}</strong></span>` : ""}
+      <span class="genel">${T.genel_toplam}: ${paraFmt(o.fiyat)}</span>
+      <small>${lang === "en" ? "Prices exclude VAT." : "Fiyatlara KDV dahil değildir."}</small>
+    </div>
+    <p class="mt-4 yazdirma-gizle"><button class="btn btn-accent" onclick="window.print()">🖨 ${T.pdf_indir}</button></p>
+  </div>`;
+  return pageShell(T.teklif_baslik + " " + o.no, body, { nav: `<a href="${geriUrl}">← ${T.kapat}</a>` });
 }
 
 /* ---------------- sayfalar: ADMIN ---------------- */
@@ -1081,26 +1213,57 @@ function adminSiparislerPage(msg) {
   const aktifler = store.orders.filter((o) => ["hazirlaniyor", "kargoda"].includes(o.durum));
   const teslimler = store.orders.filter((o) => o.durum === "teslim").slice().reverse();
 
-  const bekleyenRows = bekleyenler.map((o) => `
-    <tr>
-      <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small></td>
-      <td>${esc(bayiAdi(o))}</td>
-      <td>${kalemListe(o)}</td>
-      <td>
-        <form method="post" action="/admin/siparis/fiyat/" style="display:flex;gap:8px;align-items:center">
-          <input type="hidden" name="id" value="${o.id}">
-          <input class="adet" style="width:130px" type="number" step="0.01" min="1" name="fiyat" placeholder="₺ toplam" required>
-          <button class="btn btn-accent btn-sm">Fiyat Ver</button>
-        </form>
-      </td>
-    </tr>`).join("");
+  // Her bekleyen istek kendi fiyatlandırma kartında: ürün başı birim fiyat + canlı toplam + indirim
+  const bekleyenKutular = bekleyenler.map((o) => {
+    const satirlar = o.kalemler.map((k) => `
+      <tr>
+        <td><span class="u-kart"><img src="/assets/img/products/${k.slug}.webp" alt="" loading="lazy"><strong>${esc(k.ad)}</strong></span></td>
+        <td style="text-align:center">${k.adet}</td>
+        <td><input class="birim" type="number" step="0.01" min="0" name="birim_${k.slug}" data-adet="${k.adet}" placeholder="₺ birim" required></td>
+        <td style="text-align:right" class="satir-toplam">—</td>
+      </tr>`).join("");
+    return `
+    <div class="kutu" style="border-left:4px solid var(--accent)">
+      <h2>${esc(o.no)} — ${esc(bayiAdi(o))} <small style="font-weight:400">(${tarih(o.tarih)})</small></h2>
+      ${o.not ? `<p style="margin-bottom:10px"><small>Not: ${esc(o.not)}</small></p>` : ""}
+      <form method="post" action="/admin/siparis/fiyat/" class="fiyatlandirma">
+        <input type="hidden" name="id" value="${o.id}">
+        <table class="liste fiyat-tablo">
+          <thead><tr><th>Ürün</th><th style="text-align:center">Adet</th><th>Birim Fiyat (₺)</th><th style="text-align:right">Tutar</th></tr></thead>
+          <tbody>${satirlar}</tbody>
+        </table>
+        <div class="fiyat-ozet">
+          <span>Ara Toplam: <strong class="ara-toplam">₺0,00</strong></span>
+          <span>
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" class="indirim-ac" style="width:18px;height:18px"> İndirim yap
+            </label>
+            <span class="indirim-alan" style="display:none"> — %
+              <input class="birim indirim-yuzde" type="number" min="0" max="99" step="0.5" name="indirim" value="" style="width:70px" placeholder="10">
+              <span class="indirim-tutar"></span>
+            </span>
+          </span>
+          <span class="genel">Genel Toplam: <span class="genel-toplam">₺0,00</span></span>
+        </div>
+        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="radio" name="seffaf" value="1" checked> Detaylı döküm bayiye gösterilsin <small>(birim fiyatlar + indirim, PDF alınabilir)</small>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="radio" name="seffaf" value="0"> Sadece toplam fiyat iletilsin
+          </label>
+          <button class="btn btn-accent btn-sm" style="margin-left:auto">Fiyatı Gönder →</button>
+        </div>
+      </form>
+    </div>`;
+  }).join("");
 
   const onayRows = onaydakiler.map((o) => `
     <tr>
-      <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small></td>
+      <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small><br><a href="/admin/teklif/?id=${o.id}"><small>Dökümü Gör</small></a></td>
       <td>${esc(bayiAdi(o))}</td>
       <td>${kalemListe(o)}</td>
-      <td><strong>${paraFmt(o.fiyat)}</strong></td>
+      <td><strong>${paraFmt(o.fiyat)}</strong>${o.indirim ? `<br><small>%${o.indirim} indirimli (${paraFmt(o.araToplam)} üzerinden)</small>` : ""}<br><small>${o.seffaf ? "Şeffaf döküm" : "Yalnız toplam"}</small></td>
       <td>
         <div class="onay-cizelge" style="flex-direction:column;gap:6px">
           <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ Bayi onayladı" : "• Bayi onayı bekleniyor"}</span>
@@ -1149,12 +1312,10 @@ function adminSiparislerPage(msg) {
   const body = `
   <span class="eyebrow">Yönetim Paneli</span>
   <h1 class="portal-title" style="font-size:2rem">Siparişler</h1>
-  <p class="portal-sub">Akış: bayi istek gönderir → siz fiyat verirsiniz → iki taraf onaylar → kargo durumunu buradan güncellersiniz; bayi ekranında canlı görünür.</p>
+  <p class="portal-sub">Akış: bayi istek gönderir → ürün başı fiyat verirsiniz (istersen indirimli) → iki taraf onaylar → kargo durumunu güncellersiniz.</p>
   ${msg || ""}
-  <div class="kutu">
-    <h2>1 — Fiyat Bekleyen İstekler <span class="durum durum-beklemede">${bekleyenler.length}</span></h2>
-    ${bekleyenler.length ? `<table class="liste"><thead><tr><th>No</th><th>Bayi</th><th>Ürünler</th><th>Fiyat Belirle</th></tr></thead><tbody>${bekleyenRows}</tbody></table>` : "<p>Bekleyen istek yok.</p>"}
-  </div>
+  <h2 style="margin:18px 0 12px">1 — Fiyat Bekleyen İstekler <span class="durum durum-beklemede">${bekleyenler.length}</span></h2>
+  ${bekleyenler.length ? bekleyenKutular : '<div class="kutu"><p>Bekleyen istek yok.</p></div>'}
   <div class="kutu">
     <h2>2 — Onay Aşamasında <span class="durum durum-beklemede">${onaydakiler.length}</span></h2>
     ${onaydakiler.length ? `<table class="liste"><thead><tr><th>No</th><th>Bayi</th><th>Ürünler</th><th>Fiyat</th><th>Onaylar</th></tr></thead><tbody>${onayRows}</tbody></table>` : "<p>Onay bekleyen sipariş yok.</p>"}
@@ -1175,7 +1336,39 @@ function adminSiparislerPage(msg) {
     <h2>Web Sitesi Teklif Talepleri <small style="font-weight:400">(son 30)</small></h2>
     ${(store.quotes || []).length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Ad / Firma</th><th>İletişim</th><th>Ürün</th><th>Mesaj</th></tr></thead><tbody>${quoteRows}</tbody></table>` : "<p>Henüz talep yok.</p>"}
   </div>`;
-  return adminLayout("/admin/siparisler/", "Siparişler", body);
+
+  const script = `<script>
+    var TL = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' });
+    document.querySelectorAll('.fiyatlandirma').forEach(function (form) {
+      function hesapla() {
+        var ara = 0;
+        form.querySelectorAll('input.birim[name^="birim_"]').forEach(function (inp) {
+          var adet = parseInt(inp.getAttribute('data-adet'), 10);
+          var birim = parseFloat(inp.value.replace(',', '.')) || 0;
+          var satir = birim * adet;
+          inp.closest('tr').querySelector('.satir-toplam').textContent = birim ? TL.format(satir) : '—';
+          ara += satir;
+        });
+        var acik = form.querySelector('.indirim-ac').checked;
+        form.querySelector('.indirim-alan').style.display = acik ? '' : 'none';
+        var yuzde = acik ? (parseFloat(form.querySelector('.indirim-yuzde').value.replace(',', '.')) || 0) : 0;
+        var indirimTutar = ara * yuzde / 100;
+        form.querySelector('.indirim-tutar').textContent = yuzde ? '(−' + TL.format(indirimTutar) + ')' : '';
+        form.querySelector('.ara-toplam').textContent = TL.format(ara);
+        form.querySelector('.genel-toplam').textContent = TL.format(ara - indirimTutar);
+      }
+      form.addEventListener('input', hesapla);
+      form.querySelector('.indirim-ac').addEventListener('change', function () {
+        if (this.checked && !form.querySelector('.indirim-yuzde').value) {
+          var y = prompt('İndirim yüzdesi kaç olsun? (örn. 10)');
+          if (y) form.querySelector('.indirim-yuzde').value = y;
+        }
+        hesapla();
+      });
+      hesapla();
+    });
+  </script>`;
+  return adminLayout("/admin/siparisler/", "Siparişler", body, { script });
 }
 
 function icerikDuzenlePage(key, msg) {
@@ -1522,25 +1715,57 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ now: Date.now(), basvurular, siparisler, onaylar }));
     }
 
-    /* ---- Admin: sipariş fiyatı belirle ---- */
+    /* ---- Admin: sipariş fiyatı belirle (ürün başı + indirim) ---- */
     if (p === "/admin/siparis/fiyat/" && req.method === "POST") {
       if (!adminSes) return redirect("/admin/");
       const f = parseForm(await readBody(req));
       const o = store.orders.find((x) => x.id === f.id);
-      const fiyat = parseFloat(String(f.fiyat || "").replace(",", "."));
-      if (o && o.durum === "fiyat_bekliyor" && isFinite(fiyat) && fiyat > 0) {
-        o.fiyat = Math.round(fiyat * 100) / 100;
-        o.durum = "fiyat_verildi";
-        o.fiyatTarihi = Date.now();
-        saveStore();
-        const d = store.dealers.find((x) => x.id === o.dealerId);
-        if (d) sendMail(d.eposta,
-          d.lang === "en" ? `Price quote for your order ${o.no}` : `${o.no} numaralı siparişiniz için fiyat teklifi`,
-          d.lang === "en"
-            ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${paraFmt(o.fiyat)}.\nLog in to the dealer portal to approve: /bayi/giris/`
-            : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${paraFmt(o.fiyat)}.\nOnaylamak için bayi portalına giriş yapın: /bayi/giris/`);
+      if (o && o.durum === "fiyat_bekliyor") {
+        let ara = 0, eksik = false;
+        for (const k of o.kalemler) {
+          const b = parseFloat(String(f["birim_" + k.slug] || "").replace(",", "."));
+          if (!isFinite(b) || b <= 0) { eksik = true; break; }
+          k.birim = Math.round(b * 100) / 100;
+          ara += k.birim * k.adet;
+        }
+        if (!eksik && ara > 0) {
+          let ind = parseFloat(String(f.indirim || "0").replace(",", "."));
+          if (!isFinite(ind) || ind < 0) ind = 0;
+          ind = Math.min(ind, 99);
+          o.araToplam = Math.round(ara * 100) / 100;
+          o.indirim = ind > 0 ? ind : 0;
+          o.fiyat = Math.round(ara * (1 - ind / 100) * 100) / 100;
+          o.seffaf = f.seffaf === "1";
+          o.durum = "fiyat_verildi";
+          o.fiyatTarihi = Date.now();
+          saveStore();
+          const d = store.dealers.find((x) => x.id === o.dealerId);
+          if (d) sendMail(d.eposta,
+            d.lang === "en" ? `Price quote for your order ${o.no}` : `${o.no} numaralı siparişiniz için fiyat teklifi`,
+            d.lang === "en"
+              ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${paraFmt(o.fiyat)}${o.indirim ? ` (${o.indirim}% discount applied)` : ""}.\nLog in to the dealer portal to review and approve.`
+              : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${paraFmt(o.fiyat)}${o.indirim ? ` (%${o.indirim} indirim uygulandı)` : ""}.\nİncelemek ve onaylamak için bayi portalına giriş yapın.`);
+        }
       }
       return redirect("/admin/siparisler/");
+    }
+
+    /* ---- Teklif dökümü: bayi (şeffaf ise) ---- */
+    if (p === "/bayi/teklif/") {
+      const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
+      if (!d) return redirect("/bayi/giris/");
+      const o = store.orders.find((x) => x.id === url.searchParams.get("id") && x.dealerId === d.id);
+      if (!o || !o.seffaf || !o.fiyat) return redirect("/bayi/");
+      return send(teklifPage(o, d, d.lang || "tr", "/bayi/"));
+    }
+
+    /* ---- Teklif dökümü: admin ---- */
+    if (p === "/admin/teklif/") {
+      if (!adminSes) return redirect("/admin/");
+      const o = store.orders.find((x) => x.id === url.searchParams.get("id"));
+      if (!o || !o.fiyat) return redirect("/admin/siparisler/");
+      const d = store.dealers.find((x) => x.id === o.dealerId) || { firma: "?" };
+      return send(teklifPage(o, d, "tr", "/admin/siparisler/"));
     }
 
     /* ---- Admin: sipariş onayı ---- */
