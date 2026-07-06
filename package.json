@@ -1,0 +1,12 @@
+{
+  "name": "maxx-global-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Maxx Global Medikal web sitesi + bayi portalı (bağımlılıksız Node.js)",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

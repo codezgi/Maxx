@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /tesekkurler/
+Disallow: /en/thank-you/
+
+Sitemap: https://www.maxx-global.net/sitemap.xml
