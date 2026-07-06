@@ -548,6 +548,25 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
   .js [data-anim], .js .ta-char { opacity: 1; transform: none; }
 }
 
+/* ---------- Ürün teknik tablo + SSS ---------- */
+.spec-tablo { width: 100%; border-collapse: collapse; margin: 22px 0 6px; font-size: .93rem; }
+.spec-tablo th, .spec-tablo td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.spec-tablo th { width: 38%; color: var(--heading); font-weight: 700; background: var(--soft); }
+.spec-tablo tr:first-child th { border-radius: 10px 0 0 0; }
+.sss-bolum details {
+  border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px;
+  background: var(--white); overflow: hidden;
+}
+.sss-bolum summary {
+  padding: 16px 20px; font-weight: 700; color: var(--heading); cursor: pointer;
+  list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.sss-bolum summary::-webkit-details-marker { display: none; }
+.sss-bolum summary::after { content: "+"; color: var(--accent); font-size: 1.3rem; font-weight: 800; flex: none; }
+.sss-bolum details[open] summary::after { content: "−"; }
+.sss-bolum details[open] summary { border-bottom: 1px solid var(--line); }
+.sss-bolum details p { padding: 14px 20px 18px; }
+
 /* ---------- Yardımcılar ---------- */
 .text-center { text-align: center; }
 .mt-2 { margin-top: 16px; } .mt-4 { margin-top: 32px; } .mt-6 { margin-top: 48px; }
