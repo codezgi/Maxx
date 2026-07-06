@@ -216,6 +216,17 @@ const DURUM_EN = { fiyat_bekliyor: "Awaiting Price", fiyat_verildi: "Awaiting Ap
 const DURUM_RENK = { fiyat_bekliyor: "beklemede", fiyat_verildi: "beklemede",
   hazirlaniyor: "onayli", kargoda: "onayli", teslim: "onayli" };
 
+/* İndirim %'lik ya da sabit tutar (₺) olabilir; eski kayıtlarla geriye uyumlu */
+function indirimTutarOf(o) {
+  if (o.indirimTutar != null) return o.indirimTutar;
+  if (o.indirim && o.araToplam) return Math.round(o.araToplam * o.indirim) / 100;
+  return 0;
+}
+function indirimEtiketi(o) {
+  if (o.indirimTip === "tutar") return paraFmt(o.indirimDeger || o.indirimTutar || 0);
+  return "%" + (o.indirimDeger ?? o.indirim ?? 0);
+}
+
 function kargoStepper(durum, lang) {
   const adimlar = lang === "en"
     ? [["hazirlaniyor", "Preparing"], ["kargoda", "Shipped"], ["teslim", "Delivered"]]
@@ -491,6 +502,9 @@ tr: {
   p1: "Parola (en az 8 karakter)", p2: "Parola (tekrar)", etkinlestir: "Hesabı Etkinleştir",
   sepet_bak: "Sepeti İncele", sepet_onayla: "Sipariş İsteğini Onayla ve Gönder", kaldir: "Kaldır",
   teklif_dokum: "Teklif Dökümünü Görüntüle", pdf_indir: "PDF Olarak Kaydet / Yazdır",
+  siparis_takip: "Sipariş Takibi",
+  takip_alt: "Fiyat teklifleriniz, onaylarınız ve kargo durumunuz bu sayfada.",
+  teklif_var: "fiyat teklifi onayınızı bekliyor",
   ara_toplam: "Ara Toplam", indirim_lbl: "İndirim", genel_toplam: "Genel Toplam",
   birim_lbl: "Birim Fiyat", satir_lbl: "Tutar", teklif_baslik: "Fiyat Teklifi", kapat: "Kapat",
   indirim_uygulandi: "indirim uygulandı",
@@ -522,6 +536,9 @@ en: {
   p1: "Password (min. 8 characters)", p2: "Password (repeat)", etkinlestir: "Activate Account",
   sepet_bak: "Review Cart", sepet_onayla: "Confirm & Send Order Request", kaldir: "Remove",
   teklif_dokum: "View Quote Breakdown", pdf_indir: "Save as PDF / Print",
+  siparis_takip: "Order Tracking",
+  takip_alt: "Your price quotes, approvals and shipping status live here.",
+  teklif_var: "price quote awaiting your approval",
   ara_toplam: "Subtotal", indirim_lbl: "Discount", genel_toplam: "Grand Total",
   birim_lbl: "Unit Price", satir_lbl: "Amount", teklif_baslik: "Price Quote", kapat: "Close",
   indirim_uygulandi: "discount applied",
@@ -660,31 +677,8 @@ function bayiPortalPage(dealer, lang, msg) {
   const T = BL[lang];
   const D = lang === "en" ? DURUM_EN : DURUM_TR;
   const fiyatAcik = store.settings.fiyatGoster;
-  const myOrders = store.orders.filter((o) => o.dealerId === dealer.id).slice().reverse();
-
-  const teklifler = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).map((o) => `
-    <div class="msg msg-info" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${paraFmt(o.fiyat)}</strong>
-        ${o.indirim ? `<small>(%${o.indirim} ${T.indirim_uygulandi})</small>` : ""}</span>
-      <span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-        ${o.seffaf ? `<a class="btn btn-outline btn-sm" href="/bayi/teklif/?id=${o.id}">${T.teklif_dokum}</a>` : ""}
-        <form method="post" action="/bayi/onayla/">
-          <input type="hidden" name="id" value="${o.id}">
-          <button class="btn btn-accent btn-sm">${T.onayla}</button>
-        </form>
-      </span>
-    </div>`).join("");
-
-  const tesekkurler = myOrders.filter((o) => o.durum === "teslim" && !o.tesekkur).map((o) => `
-    <div class="kutu">
-      <h2>${T.tesekkur_baslik} <small style="font-weight:400">(${esc(o.no)})</small></h2>
-      <form method="post" action="/bayi/tesekkur/">
-        <input type="hidden" name="id" value="${o.id}">
-        <textarea name="mesaj" rows="2" required maxlength="600" placeholder="${T.tesekkur_ph}"
-          style="width:100%;border:1.5px solid var(--line);border-radius:10px;padding:12px"></textarea>
-        <p class="mt-2"><button class="btn btn-accent btn-sm">${T.tesekkur_gonder}</button></p>
-      </form>
-    </div>`).join("");
+  const myOrders = store.orders.filter((o) => o.dealerId === dealer.id);
+  const bekleyenTeklif = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).length;
 
   const urunKartlari = PRODUCTS.map(([slug, name]) => {
     const fiyat = fiyatAcik ? (store.prodMeta[slug] || {}).fiyat : null;
@@ -702,46 +696,16 @@ function bayiPortalPage(dealer, lang, msg) {
       </div>`;
   }).join("");
 
-  const orderRows = myOrders.map((o) => {
-    let durumHtml = `<span class="durum durum-${DURUM_RENK[o.durum]}">${D[o.durum]}</span>`;
-    if (["hazirlaniyor", "kargoda", "teslim"].includes(o.durum)) {
-      durumHtml = kargoStepper(o.durum, lang);
-      if (o.kargoTakip) durumHtml += `<small>${lang === "en" ? "Tracking" : "Takip"}: <span class="kod">${esc(o.kargoTakip)}</span></small>`;
-    }
-    else if (o.durum === "fiyat_bekliyor") durumHtml += `<br><small>${T.fiyat_bekliyor_msg}</small>`;
-    else if (o.durum === "fiyat_verildi") {
-      durumHtml += `<div class="onay-cizelge">
-        <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ " + T.onay_sen : "• " + (lang==="en"?"Your approval pending":"Onayınız bekleniyor")}</span>
-        <span class="${o.adminOnay ? "ok" : "bekliyor"}">${o.adminOnay ? "✓ Maxx Global" : "• " + T.onay_bekle_admin}</span>
-      </div>`;
-    }
-    const fiyatHtml = o.fiyat
-      ? `<strong>${paraFmt(o.fiyat)}</strong>` + (o.seffaf ? `<br><a href="/bayi/teklif/?id=${o.id}"><small>${T.teklif_dokum}</small></a>` : "")
-      : "—";
-    return `<tr>
-      <td><strong>${esc(o.no)}</strong><br><small>${new Date(o.tarih).toLocaleDateString(lang==="en"?"en-GB":"tr-TR")}</small></td>
-      <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}${o.not ? `<br><small>${esc(o.not)}</small>` : ""}</td>
-      <td>${fiyatHtml}</td>
-      <td style="min-width:290px">${durumHtml}</td>
-    </tr>`;
-  }).join("");
-
   const body = `
   <span class="eyebrow">${T.portal}</span>
   <h1 class="portal-title" style="font-size:2rem">${T.hosgeldin}, ${esc(dealer.firma)}</h1>
   <p class="portal-sub">${T.portal_alt}</p>
   ${msg || ""}
-  ${teklifler}
-  ${tesekkurler}
+  ${bekleyenTeklif ? `<div class="msg msg-info">💰 <strong>${bekleyenTeklif}</strong> ${T.teklif_var} — <a href="/bayi/siparisler/">${T.siparis_takip} →</a></div>` : ""}
   <div class="kutu">
     <h2>${T.urunler}</h2>
     <div class="urun-grid">${urunKartlari}</div>
   </div>
-  <div class="kutu">
-    <h2>${T.siparislerim}</h2>
-    ${myOrders.length ? `<table class="liste"><thead><tr><th>${T.no_col}</th><th>${T.urun_col}</th><th>${T.toplam}</th><th>${T.durum}</th></tr></thead><tbody>${orderRows}</tbody></table>` : `<p>${T.siparis_yok}</p>`}
-  </div>
-
   <button type="button" id="sepetFab" class="sepet-fab" onclick="sepetAc()" aria-label="${T.sepet}">
     🛒 ${T.sepet} <span id="sepetSayi" class="fab-badge">0</span>
   </button>
@@ -836,9 +800,83 @@ function bayiPortalPage(dealer, lang, msg) {
     });
   </script>`;
   return pageShell(T.portal, body, {
-    nav: `<a href="/">${T.siteye_don}</a><a href="/bayi/cikis/">${T.cikis}</a>`,
+    nav: `<a href="/bayi/">${T.urunler}</a><a href="/bayi/siparisler/">${T.siparis_takip}</a><a href="/">${T.siteye_don}</a><a href="/bayi/cikis/">${T.cikis}</a>`,
     script,
   });
+}
+
+function bayiSiparislerPage(dealer, lang, msg) {
+  const T = BL[lang];
+  const D = lang === "en" ? DURUM_EN : DURUM_TR;
+  const fiyatAcik = store.settings.fiyatGoster;
+  const myOrders = store.orders.filter((o) => o.dealerId === dealer.id).slice().reverse();
+
+  const teklifler = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).map((o) => `
+    <div class="msg msg-info" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${paraFmt(o.fiyat)}</strong>
+        ${indirimTutarOf(o) ? `<small>(${indirimEtiketi(o)} ${T.indirim_uygulandi})</small>` : ""}</span>
+      <span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        ${o.seffaf ? `<a class="btn btn-outline btn-sm" href="/bayi/teklif/?id=${o.id}">${T.teklif_dokum}</a>` : ""}
+        <form method="post" action="/bayi/onayla/">
+          <input type="hidden" name="id" value="${o.id}">
+          <button class="btn btn-accent btn-sm">${T.onayla}</button>
+        </form>
+      </span>
+    </div>`).join("");
+
+  const tesekkurler = myOrders.filter((o) => o.durum === "teslim" && !o.tesekkur).map((o) => `
+    <div class="kutu">
+      <h2>${T.tesekkur_baslik} <small style="font-weight:400">(${esc(o.no)})</small></h2>
+      <form method="post" action="/bayi/tesekkur/">
+        <input type="hidden" name="id" value="${o.id}">
+        <textarea name="mesaj" rows="2" required maxlength="600" placeholder="${T.tesekkur_ph}"
+          style="width:100%;border:1.5px solid var(--line);border-radius:10px;padding:12px"></textarea>
+        <p class="mt-2"><button class="btn btn-accent btn-sm">${T.tesekkur_gonder}</button></p>
+      </form>
+    </div>`).join("");
+
+  const orderRows = myOrders.map((o) => {
+    let durumHtml = `<span class="durum durum-${DURUM_RENK[o.durum]}">${D[o.durum]}</span>`;
+    if (["hazirlaniyor", "kargoda", "teslim"].includes(o.durum)) {
+      durumHtml = kargoStepper(o.durum, lang);
+      if (o.kargoTakip) durumHtml += `<small>${lang === "en" ? "Tracking" : "Takip"}: <span class="kod">${esc(o.kargoTakip)}</span></small>`;
+    }
+    else if (o.durum === "fiyat_bekliyor") durumHtml += `<br><small>${T.fiyat_bekliyor_msg}</small>`;
+    else if (o.durum === "fiyat_verildi") {
+      durumHtml += `<div class="onay-cizelge">
+        <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ " + T.onay_sen : "• " + (lang==="en"?"Your approval pending":"Onayınız bekleniyor")}</span>
+        <span class="${o.adminOnay ? "ok" : "bekliyor"}">${o.adminOnay ? "✓ Maxx Global" : "• " + T.onay_bekle_admin}</span>
+      </div>`;
+    }
+    const fiyatHtml = o.fiyat
+      ? `<strong>${paraFmt(o.fiyat)}</strong>` + (o.seffaf ? `<br><a href="/bayi/teklif/?id=${o.id}"><small>${T.teklif_dokum}</small></a>` : "")
+      : "—";
+    return `<tr>
+      <td><strong>${esc(o.no)}</strong><br><small>${new Date(o.tarih).toLocaleDateString(lang==="en"?"en-GB":"tr-TR")}</small></td>
+      <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}${o.not ? `<br><small>${esc(o.not)}</small>` : ""}</td>
+      <td>${fiyatHtml}</td>
+      <td style="min-width:290px">${durumHtml}</td>
+    </tr>`;
+  }).join("");
+
+  const body = `
+  <span class="eyebrow">${T.portal}</span>
+  <h1 class="portal-title" style="font-size:2rem">${T.siparis_takip}</h1>
+  <p class="portal-sub">${T.takip_alt}</p>
+  ${msg || ""}
+  ${teklifler}
+  ${tesekkurler}
+  <div class="kutu">
+    <h2>${T.siparislerim}</h2>
+    ${myOrders.length ? `<table class="liste"><thead><tr><th>${T.no_col}</th><th>${T.urun_col}</th><th>${T.toplam}</th><th>${T.durum}</th></tr></thead><tbody>${orderRows}</tbody></table>` : `<p>${T.siparis_yok}</p>`}
+  </div>
+
+`;
+
+
+  return pageShell(T.siparis_takip, body, {
+    nav: `<a href="/bayi/">${T.urunler}</a><a href="/bayi/siparisler/">${T.siparis_takip}</a><a href="/">${T.siteye_don}</a><a href="/bayi/cikis/">${T.cikis}</a>`,
+    });
 }
 
 /* Fiyat teklifi dökümü — bayi (seffaf ise) ve admin görebilir; yazdır → PDF */
@@ -863,7 +901,7 @@ function teklifPage(o, dealer, lang, geriUrl) {
     </table>
     <div class="fiyat-ozet">
       <span>${T.ara_toplam}: <strong>${paraFmt(o.araToplam || o.fiyat)}</strong></span>
-      ${o.indirim ? `<span>${T.indirim_lbl} (%${o.indirim}): <strong>−${paraFmt((o.araToplam || 0) * o.indirim / 100)}</strong></span>` : ""}
+      ${indirimTutarOf(o) ? `<span>${T.indirim_lbl} (${indirimEtiketi(o)}): <strong>−${paraFmt(indirimTutarOf(o))}</strong></span>` : ""}
       <span class="genel">${T.genel_toplam}: ${paraFmt(o.fiyat)}</span>
       <small>${lang === "en" ? "Prices exclude VAT." : "Fiyatlara KDV dahil değildir."}</small>
     </div>
@@ -1219,7 +1257,7 @@ function adminSiparislerPage(msg) {
       <tr>
         <td><span class="u-kart"><img src="/assets/img/products/${k.slug}.webp" alt="" loading="lazy"><strong>${esc(k.ad)}</strong></span></td>
         <td style="text-align:center">${k.adet}</td>
-        <td><input class="birim" type="number" step="0.01" min="0" name="birim_${k.slug}" data-adet="${k.adet}" placeholder="₺ birim" required></td>
+        <td><input class="birim para" type="text" inputmode="decimal" name="birim_${k.slug}" data-adet="${k.adet}" placeholder="₺ birim" required autocomplete="off"></td>
         <td style="text-align:right" class="satir-toplam">—</td>
       </tr>`).join("");
     return `
@@ -1234,12 +1272,16 @@ function adminSiparislerPage(msg) {
         </table>
         <div class="fiyat-ozet">
           <span>Ara Toplam: <strong class="ara-toplam">₺0,00</strong></span>
-          <span>
+          <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
             <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
               <input type="checkbox" class="indirim-ac" style="width:18px;height:18px"> İndirim yap
             </label>
-            <span class="indirim-alan" style="display:none"> — %
-              <input class="birim indirim-yuzde" type="number" min="0" max="99" step="0.5" name="indirim" value="" style="width:70px" placeholder="10">
+            <span class="indirim-alan" style="display:none;align-items:center;gap:6px">
+              <select name="indirim_tip" class="adet indirim-tip" style="width:64px;padding:8px 4px">
+                <option value="yuzde">%</option>
+                <option value="tutar">₺</option>
+              </select>
+              <input class="birim para indirim-deger" type="text" inputmode="decimal" name="indirim" value="" style="width:110px" placeholder="10" autocomplete="off">
               <span class="indirim-tutar"></span>
             </span>
           </span>
@@ -1263,7 +1305,7 @@ function adminSiparislerPage(msg) {
       <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small><br><a href="/admin/teklif/?id=${o.id}"><small>Dökümü Gör</small></a></td>
       <td>${esc(bayiAdi(o))}</td>
       <td>${kalemListe(o)}</td>
-      <td><strong>${paraFmt(o.fiyat)}</strong>${o.indirim ? `<br><small>%${o.indirim} indirimli (${paraFmt(o.araToplam)} üzerinden)</small>` : ""}<br><small>${o.seffaf ? "Şeffaf döküm" : "Yalnız toplam"}</small></td>
+      <td><strong>${paraFmt(o.fiyat)}</strong>${indirimTutarOf(o) ? `<br><small>${indirimEtiketi(o)} indirimli (${paraFmt(o.araToplam)} üzerinden)</small>` : ""}<br><small>${o.seffaf ? "Şeffaf döküm" : "Yalnız toplam"}</small></td>
       <td>
         <div class="onay-cizelge" style="flex-direction:column;gap:6px">
           <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ Bayi onayladı" : "• Bayi onayı bekleniyor"}</span>
@@ -1339,32 +1381,38 @@ function adminSiparislerPage(msg) {
 
   const script = `<script>
     var TL = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' });
+    // "1.250,50" biçimli metni sayıya çevir
+    function sayi(v) { return parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0; }
+    // Yazarken binlik noktaları otomatik koy (1250 → 1.250 · virgülden sonra 2 hane)
+    function bicimle(el) {
+      var v = el.value.replace(/[^\d,]/g, '');
+      var parca = v.split(',');
+      var tam = parca[0].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      el.value = tam + (parca.length > 1 ? ',' + parca.slice(1).join('').slice(0, 2) : '');
+    }
     document.querySelectorAll('.fiyatlandirma').forEach(function (form) {
       function hesapla() {
         var ara = 0;
         form.querySelectorAll('input.birim[name^="birim_"]').forEach(function (inp) {
           var adet = parseInt(inp.getAttribute('data-adet'), 10);
-          var birim = parseFloat(inp.value.replace(',', '.')) || 0;
-          var satir = birim * adet;
-          inp.closest('tr').querySelector('.satir-toplam').textContent = birim ? TL.format(satir) : '—';
-          ara += satir;
+          var birim = sayi(inp.value);
+          inp.closest('tr').querySelector('.satir-toplam').textContent = birim ? TL.format(birim * adet) : '—';
+          ara += birim * adet;
         });
         var acik = form.querySelector('.indirim-ac').checked;
-        form.querySelector('.indirim-alan').style.display = acik ? '' : 'none';
-        var yuzde = acik ? (parseFloat(form.querySelector('.indirim-yuzde').value.replace(',', '.')) || 0) : 0;
-        var indirimTutar = ara * yuzde / 100;
-        form.querySelector('.indirim-tutar').textContent = yuzde ? '(−' + TL.format(indirimTutar) + ')' : '';
+        form.querySelector('.indirim-alan').style.display = acik ? 'inline-flex' : 'none';
+        var tip = form.querySelector('.indirim-tip').value;
+        var deger = acik ? sayi(form.querySelector('.indirim-deger').value) : 0;
+        var indirimTutar = tip === 'tutar' ? Math.min(deger, ara) : ara * Math.min(deger, 99) / 100;
+        form.querySelector('.indirim-tutar').textContent = indirimTutar ? '(−' + TL.format(indirimTutar) + ')' : '';
         form.querySelector('.ara-toplam').textContent = TL.format(ara);
         form.querySelector('.genel-toplam').textContent = TL.format(ara - indirimTutar);
       }
-      form.addEventListener('input', hesapla);
-      form.querySelector('.indirim-ac').addEventListener('change', function () {
-        if (this.checked && !form.querySelector('.indirim-yuzde').value) {
-          var y = prompt('İndirim yüzdesi kaç olsun? (örn. 10)');
-          if (y) form.querySelector('.indirim-yuzde').value = y;
-        }
-        hesapla();
+      form.querySelectorAll('input.para').forEach(function (inp) {
+        inp.addEventListener('input', function () { bicimle(inp); hesapla(); });
       });
+      form.addEventListener('input', hesapla);
+      form.addEventListener('change', hesapla);
       hesapla();
     });
   </script>`;
@@ -1570,8 +1618,15 @@ const server = http.createServer(async (req, res) => {
       return redirect("/bayi/");
     }
 
-    /* ---- Bayi portalı ---- */
+    /* ---- Bayi portalı (ürünler + sepet) ---- */
     if (p === "/bayi/") {
+      const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
+      if (!d) return redirect("/bayi/giris/");
+      return send(bayiPortalPage(d, bayiDil(req, url, d), ""));
+    }
+
+    /* ---- Sipariş takibi (ayrı sayfa) ---- */
+    if (p === "/bayi/siparisler/") {
       const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
       if (!d) return redirect("/bayi/giris/");
       const lang = bayiDil(req, url, d);
@@ -1579,7 +1634,7 @@ const server = http.createServer(async (req, res) => {
       let m = "";
       if (url.searchParams.get("no")) m = `<p class="msg msg-ok">${T.istek_alindi} <strong>${esc(url.searchParams.get("no"))}</strong>. ${T.istek_alindi2}</p>`;
       if (url.searchParams.get("tesekkur")) m = `<p class="msg msg-ok">${T.tesekkur_alindi}</p>`;
-      return send(bayiPortalPage(d, lang, m));
+      return send(bayiSiparislerPage(d, lang, m));
     }
 
     /* ---- Sipariş isteği (sepet) ---- */
@@ -1608,7 +1663,7 @@ const server = http.createServer(async (req, res) => {
         kalemler.map((k) => `- ${k.ad} × ${k.adet}`).join("\n") +
         (f.not ? `\n\nNot: ${clamp(f.not, 1000)}` : "") +
         `\n\nFiyat belirlemek için yönetim paneline girin.`);
-      return redirect("/bayi/?no=" + encodeURIComponent(no));
+      return redirect("/bayi/siparisler/?no=" + encodeURIComponent(no));
     }
 
     /* ---- Bayi fiyat onayı ---- */
@@ -1626,7 +1681,7 @@ const server = http.createServer(async (req, res) => {
           `${d.firma}, ${o.no} numaralı sipariş için ${paraFmt(o.fiyat)} fiyat teklifini ONAYLADI.` +
           (o.adminOnay ? "\nHer iki onay tamam — sipariş Hazırlanıyor durumuna geçti." : "\nSizin onayınız bekleniyor (yönetim paneli → Siparişler)."));
       }
-      return redirect("/bayi/");
+      return redirect("/bayi/siparisler/");
     }
 
     /* ---- Bayi teşekkür mesajı ---- */
@@ -1641,7 +1696,7 @@ const server = http.createServer(async (req, res) => {
         store.thanks.push({ tarih: Date.now(), firma: d.firma, sehir: d.sehir, no: o.no, mesaj });
         saveStore();
       }
-      return redirect("/bayi/?tesekkur=1");
+      return redirect("/bayi/siparisler/?tesekkur=1");
     }
 
     if (p === "/bayi/cikis/") { setCookie(res, "bayi", "x", 0); return redirect("/"); }
@@ -1721,20 +1776,26 @@ const server = http.createServer(async (req, res) => {
       const f = parseForm(await readBody(req));
       const o = store.orders.find((x) => x.id === f.id);
       if (o && o.durum === "fiyat_bekliyor") {
+        const paraOku = (v) => parseFloat(String(v || "").replace(/\./g, "").replace(",", "."));
         let ara = 0, eksik = false;
         for (const k of o.kalemler) {
-          const b = parseFloat(String(f["birim_" + k.slug] || "").replace(",", "."));
+          const b = paraOku(f["birim_" + k.slug]);
           if (!isFinite(b) || b <= 0) { eksik = true; break; }
           k.birim = Math.round(b * 100) / 100;
           ara += k.birim * k.adet;
         }
         if (!eksik && ara > 0) {
-          let ind = parseFloat(String(f.indirim || "0").replace(",", "."));
-          if (!isFinite(ind) || ind < 0) ind = 0;
-          ind = Math.min(ind, 99);
+          const tip = f.indirim_tip === "tutar" ? "tutar" : "yuzde";
+          let deger = paraOku(f.indirim);
+          if (!isFinite(deger) || deger < 0) deger = 0;
+          if (tip === "yuzde") deger = Math.min(deger, 99);
+          const indirimTutar = tip === "tutar" ? Math.min(deger, ara) : ara * deger / 100;
           o.araToplam = Math.round(ara * 100) / 100;
-          o.indirim = ind > 0 ? ind : 0;
-          o.fiyat = Math.round(ara * (1 - ind / 100) * 100) / 100;
+          o.indirimTip = deger > 0 ? tip : null;
+          o.indirimDeger = deger > 0 ? deger : 0;
+          o.indirimTutar = Math.round(indirimTutar * 100) / 100;
+          o.indirim = tip === "yuzde" && deger > 0 ? deger : 0;
+          o.fiyat = Math.round((ara - indirimTutar) * 100) / 100;
           o.seffaf = f.seffaf === "1";
           o.durum = "fiyat_verildi";
           o.fiyatTarihi = Date.now();
@@ -1743,8 +1804,8 @@ const server = http.createServer(async (req, res) => {
           if (d) sendMail(d.eposta,
             d.lang === "en" ? `Price quote for your order ${o.no}` : `${o.no} numaralı siparişiniz için fiyat teklifi`,
             d.lang === "en"
-              ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${paraFmt(o.fiyat)}${o.indirim ? ` (${o.indirim}% discount applied)` : ""}.\nLog in to the dealer portal to review and approve.`
-              : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${paraFmt(o.fiyat)}${o.indirim ? ` (%${o.indirim} indirim uygulandı)` : ""}.\nİncelemek ve onaylamak için bayi portalına giriş yapın.`);
+              ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${paraFmt(o.fiyat)}${indirimTutarOf(o) ? ` (discount applied: ${indirimEtiketi(o)})` : ""}.\nLog in to the dealer portal to review and approve.`
+              : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${paraFmt(o.fiyat)}${indirimTutarOf(o) ? ` (${indirimEtiketi(o)} indirim uygulandı)` : ""}.\nİncelemek ve onaylamak için bayi portalına giriş yapın.`);
         }
       }
       return redirect("/admin/siparisler/");
@@ -1755,8 +1816,8 @@ const server = http.createServer(async (req, res) => {
       const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
       if (!d) return redirect("/bayi/giris/");
       const o = store.orders.find((x) => x.id === url.searchParams.get("id") && x.dealerId === d.id);
-      if (!o || !o.seffaf || !o.fiyat) return redirect("/bayi/");
-      return send(teklifPage(o, d, d.lang || "tr", "/bayi/"));
+      if (!o || !o.seffaf || !o.fiyat) return redirect("/bayi/siparisler/");
+      return send(teklifPage(o, d, d.lang || "tr", "/bayi/siparisler/"));
     }
 
     /* ---- Teklif dökümü: admin ---- */
