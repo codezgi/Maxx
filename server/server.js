@@ -69,6 +69,18 @@ function loadStore() {
   store.content = store.content || {};   // düzenlenen sayfa metinleri (key -> html)
   store.prodMeta = store.prodMeta || {}; // ürün ayarları (slug -> {fiyat})
   store.quotes = store.quotes || [];
+  store.settings = store.settings || { fiyatGoster: false }; // bayilere fiyat gösterimi anahtarı
+  store.thanks = store.thanks || [];     // bayi teşekkür mesajları
+  for (const o of store.orders) {        // eski siparişleri yeni akışa taşı
+    if (!o.durum) { o.durum = "teslim"; o.fiyat = o.toplam || null; o.adminOnay = true; o.bayiOnay = true; }
+  }
+  for (const d of store.dealers) {       // şehir alanı olmayan eski kayıtlar
+    if (!d.sehir) {
+      const p = (d.adres || "").replace(/\//g, " ").trim().split(/[\s,]+/);
+      d.sehir = p.length ? p[p.length - 1] : "Bilinmiyor";
+    }
+    if (!d.lang) d.lang = "tr";
+  }
 }
 function saveStore() {
   const tmp = STORE_FILE + ".tmp";
@@ -196,6 +208,25 @@ function orderNo() {
 }
 const paraFmt = (n) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n);
 
+/* Sipariş akışı: fiyat_bekliyor → fiyat_verildi → (çift onay) hazirlaniyor → kargoda → teslim */
+const DURUM_TR = { fiyat_bekliyor: "Fiyat Bekleniyor", fiyat_verildi: "Onay Bekleniyor",
+  hazirlaniyor: "Hazırlanıyor", kargoda: "Kargoya Verildi", teslim: "Teslim Edildi" };
+const DURUM_EN = { fiyat_bekliyor: "Awaiting Price", fiyat_verildi: "Awaiting Approval",
+  hazirlaniyor: "Preparing", kargoda: "Shipped", teslim: "Delivered" };
+const DURUM_RENK = { fiyat_bekliyor: "beklemede", fiyat_verildi: "beklemede",
+  hazirlaniyor: "onayli", kargoda: "onayli", teslim: "onayli" };
+
+function kargoStepper(durum, lang) {
+  const adimlar = lang === "en"
+    ? [["hazirlaniyor", "Preparing"], ["kargoda", "Shipped"], ["teslim", "Delivered"]]
+    : [["hazirlaniyor", "Hazırlanıyor"], ["kargoda", "Kargoya Verildi"], ["teslim", "Teslim Edildi"]];
+  const sira = ["hazirlaniyor", "kargoda", "teslim"].indexOf(durum);
+  return '<div class="stepper">' + adimlar.map(([k, ad], i) => {
+    const cls = i < sira ? "tamam" : (i === sira ? "aktif" : "");
+    return `<div class="adim ${cls}"><span class="nokta">${i < sira ? "✓" : i + 1}</span><small>${ad}</small></div>`;
+  }).join('<div class="cizgi"></div>') + "</div>";
+}
+
 /* ---------------- düzenlenebilir içerik sistemi ----------------
    Statik HTML'lerdeki <!--edit:KEY--> ... <!--/edit:KEY--> bölgeleri
    admin panelinden değiştirilebilir; kayıt store.content'e yazılır ve
@@ -230,7 +261,18 @@ function editableIndex() {
     ["ana:badge:en", "Ana Sayfa — Üst Rozet (EN)", "en/index.html"],
     ["ana:baslik:en", "Ana Sayfa — Büyük Başlık (EN)", "en/index.html"],
     ["ana:aciklama:en", "Ana Sayfa — Açıklama (EN)", "en/index.html"],
+    ["hakkimizda:tr", "Hakkımızda — Sayfa Metni (TR)", "hakkimizda/index.html"],
+    ["hakkimizda:en", "About Us — Sayfa Metni (EN)", "en/about-us/index.html"],
+    ["vm:vizyon:tr", "Vizyonumuz (TR)", "vizyon-misyon/index.html"],
+    ["vm:misyon:tr", "Misyonumuz (TR)", "vizyon-misyon/index.html"],
+    ["vm:vizyon:en", "Our Vision (EN)", "en/vision-mission/index.html"],
+    ["vm:misyon:en", "Our Mission (EN)", "en/vision-mission/index.html"],
   ]) idx[k] = { file: f, label: lbl };
+  const degerAdlari = ["Kalite Odaklılık", "Güvenilirlik", "Yenilikçilik", "Müşteri Memnuniyeti", "Sürdürülebilirlik", "Etik ve Şeffaflık"];
+  for (let n = 1; n <= 6; n++) {
+    idx[`deger:${n}:tr`] = { file: "degerlerimiz/index.html", label: `Değerlerimiz — ${degerAdlari[n-1]} (TR)` };
+    idx[`deger:${n}:en`] = { file: "en/our-values/index.html", label: `Our Values — ${degerAdlari[n-1]} (EN)` };
+  }
   for (const [p, lbl] of PROSE_TR) idx["sayfa:" + p] = { file: p.slice(1) + "index.html", label: lbl };
   for (const [p, lbl] of PROSE_EN) idx["sayfa:" + p] = { file: p.slice(1) + "index.html", label: lbl };
   for (const [slug, name] of PRODUCTS) {
@@ -341,6 +383,37 @@ ${opts.leaflet ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/d
   .dlg-govde { padding: 18px 24px; max-height: 62vh; overflow: auto; }
   .dlg-alt { display: flex; gap: 10px; justify-content: flex-end; padding: 14px 24px; border-top: 1px solid var(--line); }
   .kutu h2 { font-size: 1.15rem; margin-bottom: 16px; }
+  .stepper { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; }
+  .stepper .adim { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 84px; }
+  .stepper .nokta { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+    background: #eef2f3; color: var(--text); font-weight: 700; font-size: .82rem; border: 2px solid var(--line); }
+  .stepper .adim.aktif .nokta { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 4px rgba(0,168,188,.18); }
+  .stepper .adim.tamam .nokta { background: #14b866; border-color: #14b866; color: #fff; }
+  .stepper .adim small { font-size: .72rem; font-weight: 600; color: var(--text); text-align: center; }
+  .stepper .adim.aktif small, .stepper .adim.tamam small { color: var(--heading); }
+  .stepper .cizgi { flex: 1; height: 2px; background: var(--line); min-width: 18px; margin-bottom: 18px; }
+  .urun-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
+  .urun-kart { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--white);
+    display: flex; flex-direction: column; transition: box-shadow .25s, transform .25s; }
+  .urun-kart:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
+  .urun-kart img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: var(--soft); }
+  .urun-kart .uk-govde { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .urun-kart strong { font-size: .88rem; color: var(--heading); line-height: 1.35; }
+  .urun-kart .uk-fiyat { font-size: .85rem; color: var(--accent-dark, #008a9b); font-weight: 700; }
+  .uk-adet { display: flex; gap: 8px; margin-top: auto; }
+  .uk-adet input { width: 64px; border: 1.5px solid var(--line); border-radius: 8px; padding: 7px 8px; text-align: center; }
+  .uk-adet button { flex: 1; }
+  .sepet-bar { position: sticky; top: 12px; z-index: 50; }
+  .sepet-kutu { background: var(--primary); color: rgba(255,255,255,.85); border-radius: 14px; padding: 18px 22px; }
+  .sepet-kutu h2 { color: #fff; font-size: 1.05rem; margin-bottom: 10px; }
+  .sepet-kutu table { width: 100%; font-size: .88rem; border-collapse: collapse; }
+  .sepet-kutu td { padding: 5px 4px; border-bottom: 1px solid rgba(255,255,255,.12); }
+  .sepet-kutu .cikar { color: #ff9d9d; font-weight: 700; padding: 2px 8px; }
+  .sepet-bos { opacity: .7; font-size: .9rem; }
+  .ara-kutu { width: 100%; max-width: 420px; border: 1.5px solid var(--line); border-radius: 10px; padding: 11px 14px; margin-bottom: 18px; }
+  .onay-cizelge { display: flex; gap: 18px; font-size: .82rem; margin-top: 6px; }
+  .onay-cizelge .ok { color: #14734a; font-weight: 700; }
+  .onay-cizelge .bekliyor { color: #8a6100; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -360,44 +433,111 @@ ${opts.script || ""}
 </html>`;
 }
 
-/* ---------------- sayfalar: BAYİ ---------------- */
+/* ---------------- sayfalar: BAYİ (TR/EN) ---------------- */
 
-function bayilikAlPage(msg) {
+const BL = {
+tr: {
+  code: "tr", basvuru: "Bayilik Başvurusu", giris: "Bayi Girişi", portal: "Bayi Portalı",
+  basvuru_alt: 'Formu doldurun; başvurunuz onaylandığında e-posta adresinize aktivasyon bağlantısı gönderilecektir. Zaten bayimiz misiniz? <a href="/bayi/giris/">Bayi girişi yapın →</a>',
+  giris_alt: 'Henüz bayimiz değil misiniz? <a href="/bayilik-al/">Bayilik başvurusu yapın →</a>',
+  firma: "Firma Adı *", yetkili: "Yetkili Ad Soyad *", eposta: "E-posta *", telefon: "Telefon *",
+  sehir: "Şehir *", adres: "Açık Adres *", adres_ph: "Mahalle, cadde, no, ilçe, il",
+  harita_bul: "Haritada Bul", harita_lbl: "Haritada Konumunuz *",
+  harita_ip: "(adresi yazınca otomatik işaretlenir; gerekirse iğneyi sürükleyin ya da haritaya tıklayın)",
+  bos_birak: "Boş bırakın", gonder: "Başvuruyu Gönder",
+  form_not: "Başvurunuz onaylanana kadar hesabınız etkinleşmez. Bilgileriniz üçüncü kişilerle paylaşılmaz.",
+  parola: "Parola", giris_yap: "Giriş Yap", siteye_don: "← Siteye Dön", cikis: "Çıkış Yap",
+  hosgeldin: "Hoş geldiniz", portal_alt: "Ürünlerden sepetinize ekleyip sipariş isteği oluşturun; ekibimiz fiyat teklifiyle dönüş yapacaktır.",
+  urunler: "Ürünler", sepet: "Sepetim", sepet_bos: "Sepetiniz boş. Ürünlerden adet belirleyip ekleyin.",
+  sepete_ekle: "Ekle", cikar: "✕", adet: "adet", not_lbl: "Sipariş Notu (isteğe bağlı)",
+  istek_olustur: "Sipariş İsteği Oluştur", siparislerim: "Siparişlerim", siparis_yok: "Henüz siparişiniz yok.",
+  fiyat_teklif: "Fiyat Teklifi", teklif_msg: "siparişiniz için fiyat teklifimiz:", onayla: "Onayla",
+  onay_bekle_admin: "Firma onayı bekleniyor", onay_sen: "Onayınız alındı",
+  fiyat_bekliyor_msg: "Ekibimiz fiyat çalışması yapıyor; teklif hazır olduğunda burada göreceksiniz.",
+  tesekkur_baslik: "Teşekkür Mesajı Gönder", tesekkur_ph: "Deneyiminizi bizimle paylaşın…",
+  tesekkur_gonder: "Gönder", tesekkur_alindi: "Teşekkür mesajınız için minnettarız!",
+  istek_alindi: "Sipariş isteğiniz alındı! Sipariş numaranız:", istek_alindi2: "Fiyat teklifimiz hazır olduğunda bu sayfada göreceksiniz.",
+  toplam: "Tutar", durum: "Durum", tarih: "Tarih", urun_col: "Ürünler", no_col: "Sipariş No",
+  fiyat_arayin: "", en_az_bir: "Sepetiniz boş — en az bir ürün ekleyin.",
+  aktivasyon: "Hesap Aktivasyonu", akt_alt: "Başvurunuz onaylandı! Portala giriş için bir parola belirleyin.",
+  p1: "Parola (en az 8 karakter)", p2: "Parola (tekrar)", etkinlestir: "Hesabı Etkinleştir",
+},
+en: {
+  code: "en", basvuru: "Dealer Application", giris: "Dealer Login", portal: "Dealer Portal",
+  basvuru_alt: 'Fill out the form; when approved, an activation link will be sent to your e-mail. Already a dealer? <a href="/bayi/giris/?lang=en">Log in →</a>',
+  giris_alt: 'Not a dealer yet? <a href="/bayilik-al/?lang=en">Apply for dealership →</a>',
+  firma: "Company Name *", yetkili: "Contact Person *", eposta: "E-mail *", telefon: "Phone *",
+  sehir: "City *", adres: "Full Address *", adres_ph: "Street, number, district, city, country",
+  harita_bul: "Find on Map", harita_lbl: "Your Location on the Map *",
+  harita_ip: "(marked automatically from your address; drag the pin or click the map to adjust)",
+  bos_birak: "Leave empty", gonder: "Submit Application",
+  form_not: "Your account stays inactive until approved. Your information is never shared with third parties.",
+  parola: "Password", giris_yap: "Log In", siteye_don: "← Back to Site", cikis: "Log Out",
+  hosgeldin: "Welcome", portal_alt: "Add products to your cart and create an order request; our team will respond with a price quote.",
+  urunler: "Products", sepet: "My Cart", sepet_bos: "Your cart is empty. Set quantities and add products.",
+  sepete_ekle: "Add", cikar: "✕", adet: "pcs", not_lbl: "Order Note (optional)",
+  istek_olustur: "Create Order Request", siparislerim: "My Orders", siparis_yok: "No orders yet.",
+  fiyat_teklif: "Price Quote", teklif_msg: "our price quote for your order:", onayla: "Approve",
+  onay_bekle_admin: "Awaiting company approval", onay_sen: "Your approval received",
+  fiyat_bekliyor_msg: "Our team is preparing a quote; you will see it here once ready.",
+  tesekkur_baslik: "Send a Thank-You Message", tesekkur_ph: "Share your experience with us…",
+  tesekkur_gonder: "Send", tesekkur_alindi: "We are grateful for your message!",
+  istek_alindi: "Your order request has been received! Order number:", istek_alindi2: "You will see our price quote on this page once ready.",
+  toplam: "Amount", durum: "Status", tarih: "Date", urun_col: "Products", no_col: "Order No",
+  fiyat_arayin: "", en_az_bir: "Your cart is empty — add at least one product.",
+  aktivasyon: "Account Activation", akt_alt: "Your application is approved! Set a password to log in.",
+  p1: "Password (min. 8 characters)", p2: "Password (repeat)", etkinlestir: "Activate Account",
+},
+};
+
+function bayiDil(req, url, dealer) {
+  if (url && url.searchParams.get("lang") === "en") return "en";
+  if (url && url.searchParams.get("lang") === "tr") return "tr";
+  if (dealer && dealer.lang) return dealer.lang;
+  const m = (req.headers.cookie || "").match(/blang=(en|tr)/);
+  return m ? m[1] : "tr";
+}
+
+function dilSec(lang, path) {
+  return `<span style="font-weight:700"><a href="${path}?lang=en" ${lang==="en"?'style="color:var(--accent)"':""}>EN</a> / <a href="${path}?lang=tr" ${lang==="tr"?'style="color:var(--accent)"':""}>TR</a></span>`;
+}
+
+function bayilikAlPage(lang, msg) {
+  const T = BL[lang];
   const body = `
-  <span class="eyebrow">Bayi Ağı</span>
-  <h1 class="portal-title" style="font-size:2rem">Bayilik Başvurusu</h1>
-  <p class="portal-sub">Formu doldurun; başvurunuz ekibimiz tarafından incelenip onaylandığında
-  e-posta adresinize aktivasyon bağlantısı gönderilecektir.
-  Zaten bayimiz misiniz? <a href="/bayi/giris/">Bayi girişi yapın →</a></p>
+  <span class="eyebrow">Maxx Global</span>
+  <h1 class="portal-title" style="font-size:2rem">${T.basvuru}</h1>
+  <p class="portal-sub">${T.basvuru_alt}</p>
   ${msg || ""}
   <form class="form-wrap" method="post" action="/bayilik-al/" style="max-width:860px" onsubmit="return kontrol()">
+    <input type="hidden" name="lang" value="${lang}">
     <div class="form-grid">
-      <p class="form-field"><label for="firma">Firma Adı *</label><input id="firma" name="firma" required maxlength="120"></p>
-      <p class="form-field"><label for="yetkili">Yetkili Ad Soyad *</label><input id="yetkili" name="yetkili" required maxlength="120"></p>
-      <p class="form-field"><label for="eposta">E-posta *</label><input id="eposta" name="eposta" type="email" required maxlength="180"></p>
-      <p class="form-field"><label for="telefon">Telefon *</label><input id="telefon" name="telefon" type="tel" required maxlength="40"></p>
-      <p class="form-field full"><label for="adres">Açık Adres *</label>
+      <p class="form-field"><label for="firma">${T.firma}</label><input id="firma" name="firma" required maxlength="120"></p>
+      <p class="form-field"><label for="yetkili">${T.yetkili}</label><input id="yetkili" name="yetkili" required maxlength="120"></p>
+      <p class="form-field"><label for="eposta">${T.eposta}</label><input id="eposta" name="eposta" type="email" required maxlength="180"></p>
+      <p class="form-field"><label for="telefon">${T.telefon}</label><input id="telefon" name="telefon" type="tel" required maxlength="40"></p>
+      <p class="form-field"><label for="sehir">${T.sehir}</label><input id="sehir" name="sehir" required maxlength="80"></p>
+      <p class="form-field"><label for="adres">${T.adres}</label>
         <span style="display:flex;gap:10px">
-          <input id="adres" name="adres" required maxlength="300" style="flex:1" placeholder="Mahalle, cadde, no, ilçe, il">
-          <button type="button" class="btn btn-outline btn-sm" onclick="adresBul()">Haritada Bul</button>
+          <input id="adres" name="adres" required maxlength="300" style="flex:1" placeholder="${T.adres_ph}">
+          <button type="button" class="btn btn-outline btn-sm" onclick="adresBul()">${T.harita_bul}</button>
         </span>
         <small id="adresDurum"></small>
       </p>
       <p class="form-field full">
-        <label>Haritada Konumunuz * <small>(adresi yazınca otomatik işaretlenir; gerekirse iğneyi sürükleyin ya da haritaya tıklayın)</small></label>
+        <label>${T.harita_lbl} <small>${T.harita_ip}</small></label>
         <span id="harita"></span>
         <input type="hidden" name="lat" id="lat"><input type="hidden" name="lng" id="lng">
       </p>
-      <p class="hp-field" aria-hidden="true"><label for="web_site">Boş bırakın</label><input id="web_site" name="web_site" tabindex="-1" autocomplete="off"></p>
+      <p class="hp-field" aria-hidden="true"><label for="web_site">${T.bos_birak}</label><input id="web_site" name="web_site" tabindex="-1" autocomplete="off"></p>
     </div>
-    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">Başvuruyu Gönder</button></p>
-    <p class="form-note text-center">Başvurunuz onaylanana kadar hesabınız etkinleşmez. Bilgileriniz üçüncü kişilerle paylaşılmaz.</p>
+    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.gonder}</button></p>
+    <p class="form-note text-center">${T.form_not}</p>
   </form>`;
   const script = `<script>
-    var marker, map = L.map('harita').setView([39.0, 35.2], 6);
+    var marker, map = L.map('harita').setView([39.0, 35.2], 5);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-
-    function isaretle(lat, lng, zoomla) {
+    function isaretle(lat, lng) {
       if (marker) marker.remove();
       marker = L.marker([lat, lng], { draggable: true }).addTo(map);
       marker.on('dragend', function () {
@@ -407,142 +547,197 @@ function bayilikAlPage(msg) {
       });
       document.getElementById('lat').value = (+lat).toFixed(6);
       document.getElementById('lng').value = (+lng).toFixed(6);
-      if (zoomla) map.setView([lat, lng], 15);
     }
-
-    map.on('click', function (e) { isaretle(e.latlng.lat, e.latlng.lng, false); });
-
-    var aramaZamani = 0;
+    map.on('click', function (e) { isaretle(e.latlng.lat, e.latlng.lng); });
+    var sonArama = 0;
     function adresBul() {
       var adres = document.getElementById('adres').value.trim();
+      var sehir = document.getElementById('sehir').value.trim();
       var durum = document.getElementById('adresDurum');
-      if (adres.length < 5) { durum.textContent = 'Önce adresinizi yazın.'; return; }
-      // Nominatim kullanım kuralı: saniyede en fazla 1 istek
-      var simdi = Date.now();
-      if (simdi - aramaZamani < 1100) return;
-      aramaZamani = simdi;
-      durum.textContent = 'Adres aranıyor…';
-      // Tam adres bulunamazsa kademeli olarak sadeleştirip (mahalle/ilçe/il) tekrar dene
-      var kelimeler = adres.replace(/[,.]/g, ' ').split(/\s+/).filter(Boolean);
-      var denemeler = [adres, kelimeler.slice(-3).join(' '), kelimeler.slice(-2).join(' ')];
-      function dene(i) {
-        if (i >= denemeler.length) {
-          durum.textContent = 'Adres bulunamadı. Haritaya tıklayarak konumunuzu elle işaretleyebilirsiniz.';
-          return;
-        }
-        fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tr&q=' + encodeURIComponent(denemeler[i]))
+      if (adres.length < 5 && sehir.length < 2) return;
+      var simdi = Date.now(); if (simdi - sonArama < 1100) return; sonArama = simdi;
+      durum.textContent = '…';
+      var denemeler = [adres + ' ' + sehir, sehir].filter(Boolean);
+      (function dene(i) {
+        if (i >= denemeler.length) { durum.textContent = '${lang==="en"?"Not found — click the map to mark your location.":"Bulunamadı — haritaya tıklayarak işaretleyin."}'; return; }
+        fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(denemeler[i]))
           .then(function (r) { return r.json(); })
-          .then(function (sonuc) {
-            if (sonuc && sonuc.length) {
-              isaretle(parseFloat(sonuc[0].lat), parseFloat(sonuc[0].lon), false);
-              map.setView([sonuc[0].lat, sonuc[0].lon], i === 0 ? 16 : 12);
-              durum.textContent = i === 0
-                ? 'Konum işaretlendi — doğruluğunu kontrol edin, gerekirse iğneyi sürükleyin.'
-                : 'Bölge bulundu; iğneyi tam konumunuza sürükleyin ya da haritaya tıklayın.';
-            } else {
-              setTimeout(function () { dene(i + 1); }, 1100);
-            }
-          })
-          .catch(function () { durum.textContent = 'Arama yapılamadı. Haritaya tıklayarak işaretleyin.'; });
-      }
-      dene(0);
+          .then(function (d) {
+            if (d && d.length) {
+              isaretle(parseFloat(d[0].lat), parseFloat(d[0].lon));
+              map.setView([d[0].lat, d[0].lon], i === 0 ? 15 : 11);
+              durum.textContent = '${lang==="en"?"Marked — verify and drag the pin if needed.":"İşaretlendi — doğrulayın, gerekirse iğneyi sürükleyin."}';
+            } else setTimeout(function () { dene(i + 1); }, 1100);
+          }).catch(function () { durum.textContent = '!'; });
+      })(0);
     }
     document.getElementById('adres').addEventListener('change', adresBul);
-    document.getElementById('adres').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); adresBul(); }
-    });
-
+    document.getElementById('sehir').addEventListener('change', adresBul);
     function kontrol() {
-      if (!document.getElementById('lat').value) { alert('Lütfen adresinizi haritada bulun ya da haritaya tıklayarak işaretleyin.'); return false; }
+      if (!document.getElementById('lat').value) { alert('${lang==="en"?"Please mark your location on the map.":"Lütfen haritada konumunuzu işaretleyin."}'); return false; }
       return true;
     }
   </script>`;
-  return pageShell("Bayilik Başvurusu", body, { leaflet: true, script });
+  return pageShell(T.basvuru, body, { leaflet: true, script,
+    nav: dilSec(lang, "/bayilik-al/") + `<a href="/">${T.siteye_don}</a>` });
 }
 
-function bayiGirisPage(msg) {
+function bayiGirisPage(lang, msg) {
+  const T = BL[lang];
   const body = `
-  <span class="eyebrow">Bayi Portalı</span>
-  <h1 class="portal-title" style="font-size:2rem">Bayi Girişi</h1>
-  <p class="portal-sub">Henüz bayimiz değil misiniz? <a href="/bayilik-al/">Bayilik başvurusu yapın →</a></p>
+  <span class="eyebrow">${T.portal}</span>
+  <h1 class="portal-title" style="font-size:2rem">${T.giris}</h1>
+  <p class="portal-sub">${T.giris_alt}</p>
   ${msg || ""}
   <form class="form-wrap" method="post" action="/bayi/giris/" style="max-width:480px">
+    <input type="hidden" name="lang" value="${lang}">
     <div class="form-grid" style="grid-template-columns:1fr">
-      <p class="form-field"><label for="eposta">E-posta</label><input id="eposta" name="eposta" type="email" required></p>
-      <p class="form-field"><label for="parola">Parola</label><input id="parola" name="parola" type="password" required></p>
+      <p class="form-field"><label for="eposta">${T.eposta.replace(" *","")}</label><input id="eposta" name="eposta" type="email" required></p>
+      <p class="form-field"><label for="parola">${T.parola}</label><input id="parola" name="parola" type="password" required></p>
     </div>
-    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">Giriş Yap</button></p>
+    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.giris_yap}</button></p>
   </form>`;
-  return pageShell("Bayi Girişi", body);
+  return pageShell(T.giris, body, { nav: dilSec(lang, "/bayi/giris/") + `<a href="/">${T.siteye_don}</a>` });
 }
 
-function aktivasyonPage(token, msg) {
+function aktivasyonPage(lang, token, msg) {
+  const T = BL[lang];
   const body = `
-  <span class="eyebrow">Bayi Portalı</span>
-  <h1 class="portal-title" style="font-size:2rem">Hesap Aktivasyonu</h1>
-  <p class="portal-sub">Başvurunuz onaylandı! Portala giriş için bir parola belirleyin.</p>
+  <span class="eyebrow">${T.portal}</span>
+  <h1 class="portal-title" style="font-size:2rem">${T.aktivasyon}</h1>
+  <p class="portal-sub">${T.akt_alt}</p>
   ${msg || ""}
   <form class="form-wrap" method="post" action="/bayi/aktivasyon/" style="max-width:480px">
     <input type="hidden" name="token" value="${esc(token)}">
     <div class="form-grid" style="grid-template-columns:1fr">
-      <p class="form-field"><label for="p1">Parola (en az 8 karakter)</label><input id="p1" name="p1" type="password" minlength="8" required></p>
-      <p class="form-field"><label for="p2">Parola (tekrar)</label><input id="p2" name="p2" type="password" minlength="8" required></p>
+      <p class="form-field"><label for="p1">${T.p1}</label><input id="p1" name="p1" type="password" minlength="8" required></p>
+      <p class="form-field"><label for="p2">${T.p2}</label><input id="p2" name="p2" type="password" minlength="8" required></p>
     </div>
-    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">Hesabı Etkinleştir</button></p>
+    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.etkinlestir}</button></p>
   </form>`;
-  return pageShell("Hesap Aktivasyonu", body);
+  return pageShell(T.aktivasyon, body);
 }
 
-function bayiPortalPage(dealer, msg) {
-  const rows = PRODUCTS.map(([slug, name]) => {
-    const fiyat = (store.prodMeta[slug] || {}).fiyat;
+function bayiPortalPage(dealer, lang, msg) {
+  const T = BL[lang];
+  const D = lang === "en" ? DURUM_EN : DURUM_TR;
+  const fiyatAcik = store.settings.fiyatGoster;
+  const myOrders = store.orders.filter((o) => o.dealerId === dealer.id).slice().reverse();
+
+  // Fiyat teklifi bekleyen onaylar
+  const teklifler = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).map((o) => `
+    <div class="msg msg-info" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${paraFmt(o.fiyat)}</strong></span>
+      <form method="post" action="/bayi/onayla/" style="margin-left:auto">
+        <input type="hidden" name="id" value="${o.id}">
+        <button class="btn btn-accent btn-sm">${T.onayla}</button>
+      </form>
+    </div>`).join("");
+
+  // Teslim edilen + teşekkür edilmemiş
+  const tesekkurler = myOrders.filter((o) => o.durum === "teslim" && !o.tesekkur).map((o) => `
+    <div class="kutu">
+      <h2>${T.tesekkur_baslik} <small style="font-weight:400">(${esc(o.no)})</small></h2>
+      <form method="post" action="/bayi/tesekkur/">
+        <input type="hidden" name="id" value="${o.id}">
+        <textarea name="mesaj" rows="2" required maxlength="600" placeholder="${T.tesekkur_ph}"
+          style="width:100%;border:1.5px solid var(--line);border-radius:10px;padding:12px"></textarea>
+        <p class="mt-2"><button class="btn btn-accent btn-sm">${T.tesekkur_gonder}</button></p>
+      </form>
+    </div>`).join("");
+
+  const urunKartlari = PRODUCTS.map(([slug, name]) => {
+    const fiyat = fiyatAcik ? (store.prodMeta[slug] || {}).fiyat : null;
     return `
-    <tr data-fiyat="${fiyat || 0}">
-      <td><span class="u-kart"><img src="/assets/img/products/${slug}.webp" alt="${esc(name)}" loading="lazy"><strong>${esc(name)}</strong></span></td>
-      <td style="width:140px;white-space:nowrap">${fiyat ? paraFmt(fiyat) : "<small>Fiyat için arayınız</small>"}</td>
-      <td style="width:120px"><input class="adet" type="number" min="0" max="99999" value="0" name="adet_${slug}" form="siparisForm" oninput="toplamHesapla()"></td>
+      <div class="urun-kart">
+        <img src="/assets/img/products/${slug}.webp" alt="${esc(name)}" loading="lazy">
+        <div class="uk-govde">
+          <strong>${esc(name)}</strong>
+          ${fiyat ? `<span class="uk-fiyat">${paraFmt(fiyat)}</span>` : ""}
+          <div class="uk-adet">
+            <input type="number" min="1" max="99999" value="1" id="adet-${slug}" aria-label="${T.adet}">
+            <button type="button" class="btn btn-outline btn-sm" onclick="sepeteEkle('${slug}')">${T.sepete_ekle} +</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const orderRows = myOrders.map((o) => {
+    let durumHtml = `<span class="durum durum-${DURUM_RENK[o.durum]}">${D[o.durum]}</span>`;
+    if (["hazirlaniyor", "kargoda", "teslim"].includes(o.durum)) durumHtml = kargoStepper(o.durum, lang);
+    else if (o.durum === "fiyat_bekliyor") durumHtml += `<br><small>${T.fiyat_bekliyor_msg}</small>`;
+    else if (o.durum === "fiyat_verildi") {
+      durumHtml += `<div class="onay-cizelge">
+        <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ " + T.onay_sen : "• " + (lang==="en"?"Your approval pending":"Onayınız bekleniyor")}</span>
+        <span class="${o.adminOnay ? "ok" : "bekliyor"}">${o.adminOnay ? "✓ Maxx Global" : "• " + T.onay_bekle_admin}</span>
+      </div>`;
+    }
+    return `<tr>
+      <td><strong>${esc(o.no)}</strong><br><small>${new Date(o.tarih).toLocaleDateString(lang==="en"?"en-GB":"tr-TR")}</small></td>
+      <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}${o.not ? `<br><small>${esc(o.not)}</small>` : ""}</td>
+      <td>${o.fiyat ? "<strong>" + paraFmt(o.fiyat) + "</strong>" : "—"}</td>
+      <td style="min-width:290px">${durumHtml}</td>
     </tr>`;
   }).join("");
-  const myOrders = store.orders.filter((o) => o.dealerId === dealer.id).slice().reverse();
-  const orderRows = myOrders.map((o) => `
-    <tr><td><strong>${esc(o.no)}</strong></td><td>${new Date(o.tarih).toLocaleString("tr-TR")}</td>
-    <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet + (k.fiyat ? " <small>(" + paraFmt(k.fiyat * k.adet) + ")</small>" : "")).join("<br>")}</td>
-    <td>${o.toplam ? "<strong>" + paraFmt(o.toplam) + "</strong>" : "—"}</td></tr>`).join("");
+
   const body = `
-  <span class="eyebrow">Bayi Portalı</span>
-  <h1 class="portal-title" style="font-size:2rem">Hoş geldiniz, ${esc(dealer.firma)}</h1>
-  <p class="portal-sub">Aşağıdan sipariş oluşturabilirsiniz. Siparişiniz bize ulaştığında ekibimiz sizi arayacaktır.</p>
+  <span class="eyebrow">${T.portal}</span>
+  <h1 class="portal-title" style="font-size:2rem">${T.hosgeldin}, ${esc(dealer.firma)}</h1>
+  <p class="portal-sub">${T.portal_alt}</p>
   ${msg || ""}
+  ${teklifler}
+  ${tesekkurler}
   <div class="kutu">
-    <h2>Sipariş Oluştur</h2>
-    <form id="siparisForm" method="post" action="/bayi/siparis/">
-      <table class="liste">
-        <thead><tr><th>Ürün</th><th>Bayi Fiyatı</th><th>Adet</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p class="mt-2" style="text-align:right;font-size:1.05rem">Ara Toplam: <strong id="toplam">₺0,00</strong> <small>(KDV hariç)</small></p>
-      <p class="form-field mt-4"><label for="not">Sipariş Notu (isteğe bağlı)</label>
-      <textarea id="not" name="not" rows="2" maxlength="1000" style="border:1.5px solid var(--line);border-radius:10px;padding:10px"></textarea></p>
-      <p class="mt-4"><button class="btn btn-accent" type="submit">Siparişi Oluştur</button></p>
+    <h2>${T.urunler}</h2>
+    <div class="urun-grid">${urunKartlari}</div>
+  </div>
+  <div class="sepet-bar">
+  <div class="sepet-kutu kutu" style="border:0">
+    <h2>🛒 ${T.sepet}</h2>
+    <div id="sepetIcerik"><p class="sepet-bos">${T.sepet_bos}</p></div>
+    <form id="siparisForm" method="post" action="/bayi/siparis/" class="mt-2">
+      <input type="hidden" name="sepet" id="sepetJson">
+      <p class="form-field"><label for="not" style="color:rgba(255,255,255,.85)">${T.not_lbl}</label>
+      <textarea id="not" name="not" rows="2" maxlength="1000" style="width:100%;border:0;border-radius:10px;padding:10px"></textarea></p>
+      <p class="mt-2"><button class="btn btn-light" type="submit">${T.istek_olustur} →</button></p>
     </form>
   </div>
+  </div>
   <div class="kutu">
-    <h2>Geçmiş Siparişlerim</h2>
-    ${myOrders.length ? `<table class="liste"><thead><tr><th>Sipariş No</th><th>Tarih</th><th>Ürünler</th><th>Tutar</th></tr></thead><tbody>${orderRows}</tbody></table>` : "<p>Henüz siparişiniz yok.</p>"}
+    <h2>${T.siparislerim}</h2>
+    ${myOrders.length ? `<table class="liste"><thead><tr><th>${T.no_col}</th><th>${T.urun_col}</th><th>${T.toplam}</th><th>${T.durum}</th></tr></thead><tbody>${orderRows}</tbody></table>` : `<p>${T.siparis_yok}</p>`}
   </div>`;
+
+  const adlar = {};
+  for (const [slug, name] of PRODUCTS) adlar[slug] = name;
   const script = `<script>
-    function toplamHesapla() {
-      var t = 0;
-      document.querySelectorAll('tr[data-fiyat]').forEach(function (tr) {
-        var f = parseFloat(tr.getAttribute('data-fiyat')) || 0;
-        var n = parseInt(tr.querySelector('input.adet').value || '0', 10);
-        t += f * n;
-      });
-      document.getElementById('toplam').textContent =
-        new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(t);
+    var URUNLER = ${JSON.stringify(adlar)};
+    var sepet = {};
+    function sepeteEkle(slug) {
+      var n = parseInt(document.getElementById('adet-' + slug).value || '1', 10);
+      if (!(n > 0)) return;
+      sepet[slug] = (sepet[slug] || 0) + Math.min(n, 99999);
+      ciz();
     }
+    function sepettenCikar(slug) { delete sepet[slug]; ciz(); }
+    function ciz() {
+      var k = Object.keys(sepet);
+      var kutu = document.getElementById('sepetIcerik');
+      if (!k.length) { kutu.innerHTML = '<p class="sepet-bos">${T.sepet_bos}</p>'; document.getElementById('sepetJson').value = ''; return; }
+      kutu.innerHTML = '<table>' + k.map(function (s) {
+        return '<tr><td>' + URUNLER[s] + '</td><td style="text-align:right;white-space:nowrap">' + sepet[s] + ' ${T.adet}</td>' +
+          '<td style="width:30px;text-align:right"><button type="button" class="cikar" onclick="sepettenCikar(\\'' + s + '\\')">✕</button></td></tr>';
+      }).join('') + '</table>';
+      document.getElementById('sepetJson').value = JSON.stringify(sepet);
+    }
+    document.getElementById('siparisForm').addEventListener('submit', function (e) {
+      if (!Object.keys(sepet).length) { e.preventDefault(); alert('${T.en_az_bir}'); }
+    });
   </script>`;
-  return pageShell("Bayi Portalı", body, { nav: '<a href="/">← Siteye Dön</a><a href="/bayi/cikis/">Çıkış Yap</a>', script });
+  return pageShell(T.portal, body, {
+    nav: `<a href="/">${T.siteye_don}</a><a href="/bayi/cikis/">${T.cikis}</a>`,
+    script,
+  });
 }
 
 /* ---------------- sayfalar: ADMIN ---------------- */
@@ -605,7 +800,8 @@ const BILDIRIM_JS = `<script>
         localStorage.setItem('mgSonKontrol', son);
         var olaylar = [];
         d.basvurular.forEach(function (b) { olaylar.push({ baslik: 'Yeni bayilik başvurusu', metin: b.firma, url: '/admin/onaylar/' }); });
-        d.siparisler.forEach(function (o) { olaylar.push({ baslik: 'Yeni sipariş: ' + o.no, metin: o.firma, url: '/admin/siparisler/' }); });
+        d.siparisler.forEach(function (o) { olaylar.push({ baslik: 'Yeni sipariş isteği: ' + o.no, metin: o.firma, url: '/admin/siparisler/' }); });
+        (d.onaylar || []).forEach(function (o) { olaylar.push({ baslik: 'Bayi fiyatı onayladı: ' + o.no, metin: o.firma, url: '/admin/siparisler/' }); });
         if (olaylar.length) {
           document.title = '(' + olaylar.length + ') ' + document.title.replace(/^\\(\\d+\\) /, '');
           if ('Notification' in window && Notification.permission === 'granted') {
@@ -631,18 +827,32 @@ function adminLayout(active, title, content, opts = {}) {
 }
 
 function haritaScript() {
-  const mapData = store.dealers
-    .filter((d) => d.lat && d.lng && d.durum !== "reddedildi")
-    .map((d) => ({ lat: d.lat, lng: d.lng, firma: d.firma, adres: d.adres, durum: d.durum }));
+  // Bayileri şehre göre grupla; yoğunluk arttıkça kırmızı koyulaşır
+  const gruplar = {};
+  for (const d of store.dealers) {
+    if (!d.lat || !d.lng || d.durum === "reddedildi") continue;
+    const k = (d.sehir || "?").trim().toLocaleLowerCase("tr");
+    if (!gruplar[k]) gruplar[k] = { sehir: d.sehir, lat: 0, lng: 0, n: 0, firmalar: [] };
+    const g = gruplar[k];
+    g.lat += d.lat; g.lng += d.lng; g.n++;
+    g.firmalar.push(d.firma + (d.durum === "beklemede" ? " (onay bekliyor)" : ""));
+  }
+  const data = Object.values(gruplar).map((g) => ({
+    sehir: g.sehir, lat: g.lat / g.n, lng: g.lng / g.n, n: g.n, firmalar: g.firmalar,
+  }));
   return `<script>
-    var data = ${JSON.stringify(mapData)};
-    var map = L.map('harita').setView([39.0, 35.2], 6);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-    data.forEach(function (d) {
-      var renk = d.durum === 'onayli' ? '#14b866' : '#f2a516';
-      L.circleMarker([d.lat, d.lng], { radius: 10, color: renk, fillColor: renk, fillOpacity: .85 })
-        .addTo(map).bindPopup('<b>' + d.firma + '</b><br>' + d.adres);
+    var data = ${JSON.stringify(data)};
+    var map = L.map('harita').setView([30, 20], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+      { maxZoom: 19, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
+    var tonlar = ['#ffb3b3', '#ff8080', '#ff4d4d', '#e60000', '#990000'];
+    data.forEach(function (g) {
+      var renk = tonlar[Math.min(g.n - 1, tonlar.length - 1)];
+      L.circleMarker([g.lat, g.lng], {
+        radius: Math.min(9 + g.n * 3, 26), color: renk, fillColor: renk, fillOpacity: .8, weight: 2,
+      }).addTo(map).bindPopup('<b>' + g.sehir + '</b> — ' + g.n + ' bayi<br>' + g.firmalar.join('<br>'));
     });
+    if (data.length === 1) map.setView([data[0].lat, data[0].lng], 5);
   </script>`;
 }
 
@@ -680,7 +890,7 @@ function adminOzetPage() {
       return `<tr><td><strong>${esc(o.no)}</strong><br><small>${fmtT(o.tarih)}</small></td>
         <td>${esc(d ? d.firma : "?")}</td>
         <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}${o.not ? `<br><small>Not: ${esc(o.not)}</small>` : ""}</td>
-        <td>${o.toplam ? "<strong>" + paraFmt(o.toplam) + "</strong>" : "—"}</td></tr>`;
+        <td>${o.fiyat ? "<strong>" + paraFmt(o.fiyat) + "</strong>" : "—"}<br><span class="durum durum-${DURUM_RENK[o.durum] || "beklemede"}">${DURUM_TR[o.durum] || o.durum}</span></td></tr>`;
     }).join("")
   }</tbody></table>` : "<p>Henüz sipariş yok.</p>";
 
@@ -716,7 +926,7 @@ function adminOzetPage() {
     <button id="bildirimAc" class="btn btn-accent btn-sm" type="button">Bildirimleri Aç</button>
   </div>
   <div class="kutu">
-    <h2>Bayi Haritası <small style="font-weight:400">(yeşil: onaylı · turuncu: onay bekliyor)</small></h2>
+    <h2>Bayi Haritası <small style="font-weight:400">(şehir bazlı — bayi sayısı arttıkça kırmızı koyulaşır)</small></h2>
     <div id="harita"></div>
   </div>`;
   return adminLayout("/admin/", "Yönetim Paneli", body, { leaflet: true, script: haritaScript() });
@@ -753,7 +963,7 @@ function adminOnaylarPage(msg) {
     ${pending.length ? `<table class="liste"><thead><tr><th>Firma</th><th>İletişim</th><th>Adres</th><th></th></tr></thead><tbody>${pendingRows}</tbody></table>` : "<p>Bekleyen başvuru yok.</p>"}
   </div>
   <div class="kutu">
-    <h2>Bayi Haritası <small style="font-weight:400">(yeşil: onaylı · turuncu: onay bekliyor)</small></h2>
+    <h2>Bayi Haritası <small style="font-weight:400">(şehir bazlı — bayi sayısı arttıkça kırmızı koyulaşır)</small></h2>
     <div id="harita"></div>
   </div>
   <div class="kutu">
@@ -764,10 +974,11 @@ function adminOnaylarPage(msg) {
 }
 
 function adminFiyatlarPage(msg) {
+  const acik = store.settings.fiyatGoster;
   const rows = PRODUCTS.map(([slug, name]) => {
     const fiyat = (store.prodMeta[slug] || {}).fiyat;
     return `
-    <tr>
+    <tr class="aranabilir">
       <td><span class="u-kart"><img src="/assets/img/products/${slug}.webp" alt="" loading="lazy"><strong>${esc(name)}</strong></span></td>
       <td style="width:200px"><input class="adet" style="width:170px" type="number" step="0.01" min="0" name="fiyat_${slug}" value="${fiyat || ""}" placeholder="₺ bayi fiyatı"></td>
     </tr>`;
@@ -775,11 +986,20 @@ function adminFiyatlarPage(msg) {
   const body = `
   <span class="eyebrow">Yönetim Paneli</span>
   <h1 class="portal-title" style="font-size:2rem">Fiyat Güncelleme</h1>
-  <p class="portal-sub">Fiyatlar yalnızca giriş yapmış bayilere gösterilir; herkese açık sitede görünmez. Boş bırakılan üründe bayi "Fiyat için arayınız" görür.</p>
+  <p class="portal-sub">Buradaki liste fiyatları yalnızca aşağıdaki anahtar AÇIK olduğunda bayilere gösterilir. Sipariş fiyatlandırması her durumda Siparişler sayfasından, siparişe özel yapılır.</p>
   ${msg || ""}
+  <div class="kutu" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin-bottom:4px">Bayilere Fiyat Gösterimi: <span class="durum durum-${acik ? "onayli" : "reddedildi"}">${acik ? "AÇIK" : "KAPALI"}</span></h2>
+      <small>${acik ? "Bayiler ürün kartlarında liste fiyatlarını görüyor." : "Bayiler hiçbir fiyat görmüyor; yalnızca sipariş isteği oluşturabiliyor."}</small>
+    </div>
+    <form method="post" action="/admin/fiyat-goster/" style="margin-left:auto">
+      <button class="btn ${acik ? "btn-outline" : "btn-accent"}">${acik ? "Kapat" : "Aç"}</button>
+    </form>
+  </div>
   <form class="kutu" method="post" action="/admin/fiyatlar/">
     <table class="liste">
-      <thead><tr><th>Ürün</th><th>Bayi Fiyatı (₺, KDV hariç)</th></tr></thead>
+      <thead><tr><th>Ürün</th><th>Liste Fiyatı (₺, KDV hariç)</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="mt-4"><button class="btn btn-accent">Fiyatları Kaydet</button></p>
@@ -788,65 +1008,168 @@ function adminFiyatlarPage(msg) {
 }
 
 function adminAciklamalarPage() {
-  const prodRows = PRODUCTS.map(([slug, name]) => {
-    const trDegisik = store.content[`urun:${slug}:tr`] !== undefined;
-    const enDegisik = store.content[`urun:${slug}:en`] !== undefined;
-    return `
-    <tr>
+  const nokta = (k) => (store.content[k] !== undefined ? " •" : "");
+  const prodRows = PRODUCTS.map(([slug, name]) => `
+    <tr class="aranabilir">
       <td><span class="u-kart"><img src="/assets/img/products/${slug}.webp" alt="" loading="lazy"><strong>${esc(name)}</strong></span></td>
       <td style="white-space:nowrap">
-        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:tr">Türkçe${trDegisik ? " •" : ""}</a>
-        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:en">İngilizce${enDegisik ? " •" : ""}</a>
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:tr">Türkçe${nokta(`urun:${slug}:tr`)}</a>
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:en">İngilizce${nokta(`urun:${slug}:en`)}</a>
       </td>
-    </tr>`;
-  }).join("");
+    </tr>`).join("");
+  const link = (k, l) => `<a class="btn btn-outline btn-sm aranabilir" style="margin:3px 2px" href="/admin/icerik/?key=${encodeURIComponent(k)}">${esc(l)}${nokta(k)}</a>`;
   const anaLinkler = [
-    ["ana:badge:tr", "Rozet (TR)"], ["ana:baslik:tr", "Büyük Başlık (TR)"], ["ana:aciklama:tr", "Açıklama (TR)"],
-    ["ana:badge:en", "Rozet (EN)"], ["ana:baslik:en", "Büyük Başlık (EN)"], ["ana:aciklama:en", "Açıklama (EN)"],
-  ].map(([k, l]) => `<a class="btn btn-outline btn-sm" style="margin:3px 2px" href="/admin/icerik/?key=${encodeURIComponent(k)}">${l}${store.content[k] !== undefined ? " •" : ""}</a>`).join(" ");
-  const proseLinkler = PROSE_TR.concat(PROSE_EN).map(([p, lbl]) =>
-    `<a class="btn btn-outline btn-sm" style="margin:3px 2px" href="/admin/icerik/?key=${encodeURIComponent("sayfa:" + p)}">${esc(lbl)}${store.content["sayfa:" + p] !== undefined ? " •" : ""}</a>`).join(" ");
+    ["ana:badge:tr", "Ana Sayfa — Rozet (TR)"], ["ana:baslik:tr", "Ana Sayfa — Büyük Başlık (TR)"], ["ana:aciklama:tr", "Ana Sayfa — Açıklama (TR)"],
+    ["ana:badge:en", "Ana Sayfa — Rozet (EN)"], ["ana:baslik:en", "Ana Sayfa — Büyük Başlık (EN)"], ["ana:aciklama:en", "Ana Sayfa — Açıklama (EN)"],
+  ].map(([k, l]) => link(k, l)).join(" ");
+  const kurumsalLinkler = [
+    ["hakkimizda:tr", "Hakkımızda (TR)"], ["hakkimizda:en", "About Us (EN)"],
+    ["vm:vizyon:tr", "Vizyonumuz (TR)"], ["vm:misyon:tr", "Misyonumuz (TR)"],
+    ["vm:vizyon:en", "Our Vision (EN)"], ["vm:misyon:en", "Our Mission (EN)"],
+    ["deger:1:tr", "Değer: Kalite Odaklılık (TR)"], ["deger:2:tr", "Değer: Güvenilirlik (TR)"],
+    ["deger:3:tr", "Değer: Yenilikçilik (TR)"], ["deger:4:tr", "Değer: Müşteri Memnuniyeti (TR)"],
+    ["deger:5:tr", "Değer: Sürdürülebilirlik (TR)"], ["deger:6:tr", "Değer: Etik ve Şeffaflık (TR)"],
+    ["deger:1:en", "Value: Quality Focus (EN)"], ["deger:2:en", "Value: Reliability (EN)"],
+    ["deger:3:en", "Value: Innovation (EN)"], ["deger:4:en", "Value: Customer Satisfaction (EN)"],
+    ["deger:5:en", "Value: Sustainability (EN)"], ["deger:6:en", "Value: Ethics (EN)"],
+  ].map(([k, l]) => link(k, l)).join(" ");
+  const proseLinkler = PROSE_TR.concat(PROSE_EN).map(([p, lbl]) => link("sayfa:" + p, lbl)).join(" ");
   const body = `
   <span class="eyebrow">Yönetim Paneli</span>
   <h1 class="portal-title" style="font-size:2rem">Açıklama &amp; Metin Güncelleme</h1>
-  <p class="portal-sub">Tıklayın, metni düzenleyin, kaydedin — web sitesi anında güncellenir. Yanında <strong>•</strong> olanlar daha önce düzenlenmiştir.</p>
+  <p class="portal-sub">Aramak istediğiniz sayfa veya ürünü yazın, tıklayın, düzenleyin — site anında güncellenir. Yanında <strong>•</strong> olanlar daha önce düzenlenmiştir.</p>
+  <input class="ara-kutu" id="ara" type="search" placeholder="Ara: hakkımızda, anchor, vizyon, çevre…" autocomplete="off">
+  <div class="kutu">
+    <h2>Ana Sayfa</h2>
+    <p>${anaLinkler}</p>
+  </div>
+  <div class="kutu">
+    <h2>Kurumsal Sayfalar <small style="font-weight:400">(Hakkımızda · Vizyon &amp; Misyon · Değerlerimiz)</small></h2>
+    <p>${kurumsalLinkler}</p>
+  </div>
+  <div class="kutu">
+    <h2>Politika &amp; Diğer Sayfalar</h2>
+    <p>${proseLinkler}</p>
+  </div>
   <div class="kutu">
     <h2>Ürün Açıklamaları</h2>
     <table class="liste">
       <thead><tr><th>Ürün</th><th>Sitedeki Açıklama</th></tr></thead>
       <tbody>${prodRows}</tbody>
     </table>
-  </div>
-  <div class="kutu">
-    <h2>Ana Sayfa Metinleri</h2>
-    <p>${anaLinkler}</p>
-  </div>
-  <div class="kutu">
-    <h2>Kurumsal / Politika Sayfaları</h2>
-    <p>${proseLinkler}</p>
   </div>`;
-  return adminLayout("/admin/aciklamalar/", "Açıklama Güncelleme", body);
+  const script = `<script>
+    document.getElementById('ara').addEventListener('input', function () {
+      var q = this.value.toLocaleLowerCase('tr');
+      document.querySelectorAll('.aranabilir').forEach(function (el) {
+        el.style.display = el.textContent.toLocaleLowerCase('tr').indexOf(q) === -1 ? 'none' : '';
+      });
+    });
+  </script>`;
+  return adminLayout("/admin/aciklamalar/", "Açıklama Güncelleme", body, { script });
 }
 
-function adminSiparislerPage() {
-  const orderRows = store.orders.slice().reverse().map((o) => {
-    const d = store.dealers.find((x) => x.id === o.dealerId);
-    return `<tr><td><strong>${esc(o.no)}</strong></td><td>${esc(d ? d.firma : "?")}</td>
-      <td>${new Date(o.tarih).toLocaleString("tr-TR")}</td>
-      <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}</td>
-      <td>${o.toplam ? paraFmt(o.toplam) : "—"}</td>
-      <td>${esc(o.not || "")}</td></tr>`;
-  }).join("");
+function adminSiparislerPage(msg) {
+  const dealers = store.dealers;
+  const bayiAdi = (o) => { const d = dealers.find((x) => x.id === o.dealerId); return d ? d.firma : "?"; };
+  const kalemListe = (o) => o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>") +
+    (o.not ? `<br><small>Not: ${esc(o.not)}</small>` : "");
+  const tarih = (ts) => new Date(ts).toLocaleString("tr-TR");
+
+  const bekleyenler = store.orders.filter((o) => o.durum === "fiyat_bekliyor");
+  const onaydakiler = store.orders.filter((o) => o.durum === "fiyat_verildi");
+  const aktifler = store.orders.filter((o) => ["hazirlaniyor", "kargoda"].includes(o.durum));
+  const teslimler = store.orders.filter((o) => o.durum === "teslim").slice().reverse();
+
+  const bekleyenRows = bekleyenler.map((o) => `
+    <tr>
+      <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small></td>
+      <td>${esc(bayiAdi(o))}</td>
+      <td>${kalemListe(o)}</td>
+      <td>
+        <form method="post" action="/admin/siparis/fiyat/" style="display:flex;gap:8px;align-items:center">
+          <input type="hidden" name="id" value="${o.id}">
+          <input class="adet" style="width:130px" type="number" step="0.01" min="1" name="fiyat" placeholder="₺ toplam" required>
+          <button class="btn btn-accent btn-sm">Fiyat Ver</button>
+        </form>
+      </td>
+    </tr>`).join("");
+
+  const onayRows = onaydakiler.map((o) => `
+    <tr>
+      <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small></td>
+      <td>${esc(bayiAdi(o))}</td>
+      <td>${kalemListe(o)}</td>
+      <td><strong>${paraFmt(o.fiyat)}</strong></td>
+      <td>
+        <div class="onay-cizelge" style="flex-direction:column;gap:6px">
+          <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ Bayi onayladı" : "• Bayi onayı bekleniyor"}</span>
+          <span class="${o.adminOnay ? "ok" : "bekliyor"}">${o.adminOnay ? "✓ Siz onayladınız" : "• Sizin onayınız bekleniyor"}</span>
+        </div>
+        ${o.adminOnay ? "" : `<form method="post" action="/admin/siparis/onayla/" class="mt-2"><input type="hidden" name="id" value="${o.id}"><button class="btn btn-accent btn-sm">Onayla</button></form>`}
+      </td>
+    </tr>`).join("");
+
+  const kargoSecenek = (o) => ["hazirlaniyor", "kargoda", "teslim"].map((k) =>
+    `<option value="${k}" ${o.durum === k ? "selected" : ""}>${DURUM_TR[k]}</option>`).join("");
+  const aktifRows = aktifler.map((o) => `
+    <tr>
+      <td><strong>${esc(o.no)}</strong><br><small>${esc(bayiAdi(o))} · ${paraFmt(o.fiyat)}</small></td>
+      <td>${kalemListe(o)}</td>
+      <td style="min-width:300px">${kargoStepper(o.durum, "tr")}</td>
+      <td>
+        <form method="post" action="/admin/siparis/kargo/" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="hidden" name="id" value="${o.id}">
+          <select name="kdurum" class="adet" style="width:160px">${kargoSecenek(o)}</select>
+          <input class="adet" style="width:150px" name="takip" value="${esc(o.kargoTakip || "")}" placeholder="Takip no (ops.)" maxlength="60">
+          <button class="btn btn-accent btn-sm">Güncelle</button>
+        </form>
+      </td>
+    </tr>`).join("");
+
+  const teslimRows = teslimler.map((o) => `
+    <tr>
+      <td><strong>${esc(o.no)}</strong><br><small>${tarih(o.tarih)}</small></td>
+      <td>${esc(bayiAdi(o))}</td>
+      <td>${kalemListe(o)}</td>
+      <td>${o.fiyat ? paraFmt(o.fiyat) : "—"}</td>
+      <td>${o.kargoTakip ? `<span class="kod">${esc(o.kargoTakip)}</span>` : ""} ${o.tesekkur ? "💬" : ""}</td>
+    </tr>`).join("");
+
+  const tesekkurler = store.thanks.slice().reverse().map((t) => `
+    <div class="msg msg-ok" style="margin-bottom:10px">
+      <strong>${esc(t.firma)}</strong> <small>(${esc(t.sehir || "")} · ${esc(t.no)} · ${tarih(t.tarih)})</small><br>
+      "${esc(t.mesaj)}"
+    </div>`).join("");
+
   const quoteRows = (store.quotes || []).slice().reverse().slice(0, 30).map((q) => `
-    <tr><td>${new Date(q.tarih).toLocaleString("tr-TR")}</td><td>${esc(q.ad)}<br><small>${esc(q.firma || "")}</small></td>
+    <tr><td>${tarih(q.tarih)}</td><td>${esc(q.ad)}<br><small>${esc(q.firma || "")}</small></td>
     <td>${esc(q.eposta)}<br><small>${esc(q.telefon)}</small></td><td>${esc(q.urun)}</td><td>${esc(q.mesaj || "")}</td></tr>`).join("");
+
   const body = `
   <span class="eyebrow">Yönetim Paneli</span>
   <h1 class="portal-title" style="font-size:2rem">Siparişler</h1>
-  <p class="portal-sub">Bayi siparişleri ve web sitesi teklif talepleri.</p>
+  <p class="portal-sub">Akış: bayi istek gönderir → siz fiyat verirsiniz → iki taraf onaylar → kargo durumunu buradan güncellersiniz; bayi ekranında canlı görünür.</p>
+  ${msg || ""}
   <div class="kutu">
-    <h2>Bayi Siparişleri</h2>
-    ${store.orders.length ? `<table class="liste"><thead><tr><th>No</th><th>Bayi</th><th>Tarih</th><th>Ürünler</th><th>Tutar</th><th>Not</th></tr></thead><tbody>${orderRows}</tbody></table>` : "<p>Henüz sipariş yok.</p>"}
+    <h2>1 — Fiyat Bekleyen İstekler <span class="durum durum-beklemede">${bekleyenler.length}</span></h2>
+    ${bekleyenler.length ? `<table class="liste"><thead><tr><th>No</th><th>Bayi</th><th>Ürünler</th><th>Fiyat Belirle</th></tr></thead><tbody>${bekleyenRows}</tbody></table>` : "<p>Bekleyen istek yok.</p>"}
+  </div>
+  <div class="kutu">
+    <h2>2 — Onay Aşamasında <span class="durum durum-beklemede">${onaydakiler.length}</span></h2>
+    ${onaydakiler.length ? `<table class="liste"><thead><tr><th>No</th><th>Bayi</th><th>Ürünler</th><th>Fiyat</th><th>Onaylar</th></tr></thead><tbody>${onayRows}</tbody></table>` : "<p>Onay bekleyen sipariş yok.</p>"}
+  </div>
+  <div class="kutu">
+    <h2>3 — Kargo Takibi <span class="durum durum-onayli">${aktifler.length}</span></h2>
+    ${aktifler.length ? `<table class="liste"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Durum</th><th>Güncelle</th></tr></thead><tbody>${aktifRows}</tbody></table>` : "<p>Aktif kargo süreci yok.</p>"}
+  </div>
+  <div class="kutu">
+    <h2>4 — Teslim Edilenler</h2>
+    ${teslimler.length ? `<table class="liste"><thead><tr><th>No</th><th>Bayi</th><th>Ürünler</th><th>Tutar</th><th></th></tr></thead><tbody>${teslimRows}</tbody></table>` : "<p>Henüz teslim edilen sipariş yok.</p>"}
+  </div>
+  <div class="kutu">
+    <h2>💬 Bayi Teşekkür Mesajları <small style="font-weight:400">(beğendiklerinizi web sitesine koyabiliriz)</small></h2>
+    ${store.thanks.length ? tesekkurler : "<p>Henüz teşekkür mesajı yok.</p>"}
   </div>
   <div class="kutu">
     <h2>Web Sitesi Teklif Talepleri <small style="font-weight:400">(son 30)</small></h2>
@@ -968,58 +1291,85 @@ const server = http.createServer(async (req, res) => {
   try {
     /* ---- Bayilik başvurusu ---- */
     if (p === "/bayilik-al/") {
-      if (req.method === "GET") return send(bayilikAlPage(url.searchParams.get("ok") ? '<p class="msg msg-ok">Başvurunuz alındı! Onaylandığında e-posta adresinize aktivasyon bağlantısı göndereceğiz.</p>' : ""));
+      const lang = bayiDil(req, url);
+      if (req.method === "GET") {
+        const T = BL[lang];
+        const okMsg = lang === "en"
+          ? '<p class="msg msg-ok">Your application has been received! We will send an activation link to your e-mail once approved.</p>'
+          : '<p class="msg msg-ok">Başvurunuz alındı! Onaylandığında e-posta adresinize aktivasyon bağlantısı göndereceğiz.</p>';
+        return send(bayilikAlPage(lang, url.searchParams.get("ok") ? okMsg : ""));
+      }
       const f = parseForm(await readBody(req));
-      if (f.web_site) return redirect("/bayilik-al/?ok=1");
+      const flang = f.lang === "en" ? "en" : "tr";
+      if (f.web_site) return redirect("/bayilik-al/?ok=1&lang=" + flang);
       const firma = clamp(f.firma, 120), yetkili = clamp(f.yetkili, 120), eposta = clamp(f.eposta, 180).toLowerCase(),
-        telefon = clamp(f.telefon, 40), adres = clamp(f.adres, 300),
+        telefon = clamp(f.telefon, 40), adres = clamp(f.adres, 300), sehir = clamp(f.sehir, 80),
         lat = parseFloat(f.lat), lng = parseFloat(f.lng);
-      if (!firma || !yetkili || !telefon || !adres || !emailOk(eposta) || !isFinite(lat) || !isFinite(lng))
-        return send(bayilikAlPage('<p class="msg msg-err">Lütfen tüm zorunlu alanları doldurun ve haritada konum işaretleyin.</p>'));
+      const hataMsg = flang === "en"
+        ? '<p class="msg msg-err">Please fill in all required fields and mark your location.</p>'
+        : '<p class="msg msg-err">Lütfen tüm zorunlu alanları doldurun ve haritada konum işaretleyin.</p>';
+      if (!firma || !yetkili || !telefon || !adres || !sehir || !emailOk(eposta) || !isFinite(lat) || !isFinite(lng))
+        return send(bayilikAlPage(flang, hataMsg));
       if (store.dealers.some((d) => d.eposta === eposta && d.durum !== "reddedildi"))
-        return send(bayilikAlPage('<p class="msg msg-err">Bu e-posta ile daha önce başvuru yapılmış.</p>'));
+        return send(bayilikAlPage(flang, flang === "en"
+          ? '<p class="msg msg-err">An application already exists with this e-mail.</p>'
+          : '<p class="msg msg-err">Bu e-posta ile daha önce başvuru yapılmış.</p>'));
       store.dealers.push({
-        id: crypto.randomUUID(), firma, yetkili, eposta, telefon, adres,
+        id: crypto.randomUUID(), firma, yetkili, eposta, telefon, adres, sehir, lang: flang,
         lat, lng, durum: "beklemede", kayitTarihi: Date.now(),
       });
       saveStore();
       sendMail(ORDER_EMAIL, "Yeni bayilik başvurusu: " + firma,
-        `Firma: ${firma}\nYetkili: ${yetkili}\nE-posta: ${eposta}\nTelefon: ${telefon}\nAdres: ${adres}\n\nOnaylamak için yönetim paneline girin.`);
-      return redirect("/bayilik-al/?ok=1");
+        `Firma: ${firma}\nYetkili: ${yetkili}\nŞehir: ${sehir}\nE-posta: ${eposta}\nTelefon: ${telefon}\nAdres: ${adres}\n\nOnaylamak için yönetim paneline girin.`);
+      return redirect("/bayilik-al/?ok=1&lang=" + flang);
     }
 
     /* ---- Bayi girişi ---- */
     if (p === "/bayi/giris/") {
-      if (req.method === "GET") return send(bayiGirisPage());
+      const lang = bayiDil(req, url);
+      if (req.method === "GET") return send(bayiGirisPage(lang));
       const f = parseForm(await readBody(req));
+      const flang = f.lang === "en" ? "en" : "tr";
       const eposta = clamp(f.eposta, 180).toLowerCase();
       const key = "b:" + ip + ":" + eposta;
-      if (rateLimited(key)) return send(bayiGirisPage('<p class="msg msg-err">Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.</p>'), 429);
+      if (rateLimited(key)) return send(bayiGirisPage(flang, flang === "en"
+        ? '<p class="msg msg-err">Too many attempts. Try again in 15 minutes.</p>'
+        : '<p class="msg msg-err">Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.</p>'), 429);
       const d = store.dealers.find((x) => x.eposta === eposta);
       if (!d || !verifyPassword(f.parola || "", d.salt, d.hash)) {
         recordFail(key);
-        if (d && d.durum === "beklemede") return send(bayiGirisPage('<p class="msg msg-info">Başvurunuz henüz onaylanmadı. Onaylandığında e-posta alacaksınız.</p>'));
-        if (d && d.durum === "onayli" && !d.salt) return send(bayiGirisPage('<p class="msg msg-info">Hesabınız onaylandı ancak henüz etkinleştirilmedi. E-postanızdaki aktivasyon bağlantısını kullanın.</p>'));
-        return send(bayiGirisPage('<p class="msg msg-err">E-posta veya parola hatalı.</p>'));
+        if (d && d.durum === "beklemede") return send(bayiGirisPage(flang, flang === "en"
+          ? '<p class="msg msg-info">Your application has not been approved yet.</p>'
+          : '<p class="msg msg-info">Başvurunuz henüz onaylanmadı. Onaylandığında e-posta alacaksınız.</p>'));
+        if (d && d.durum === "onayli" && !d.salt) return send(bayiGirisPage(flang, flang === "en"
+          ? '<p class="msg msg-info">Approved but not activated — use the activation link in your e-mail.</p>'
+          : '<p class="msg msg-info">Hesabınız onaylandı ancak henüz etkinleştirilmedi. E-postanızdaki aktivasyon bağlantısını kullanın.</p>'));
+        return send(bayiGirisPage(flang, flang === "en"
+          ? '<p class="msg msg-err">Wrong e-mail or password.</p>'
+          : '<p class="msg msg-err">E-posta veya parola hatalı.</p>'));
       }
-      if (d.durum !== "onayli") return send(bayiGirisPage('<p class="msg msg-err">Hesabınız aktif değil.</p>'));
+      if (d.durum !== "onayli") return send(bayiGirisPage(flang, '<p class="msg msg-err">Hesabınız aktif değil.</p>'));
+      d.lang = flang; saveStore();
       setCookie(res, "bayi", makeSession({ t: "bayi", id: d.id }, 7), 7 * 86400);
       return redirect("/bayi/");
     }
 
     /* ---- Aktivasyon ---- */
     if (p === "/bayi/aktivasyon/") {
+      const lang = bayiDil(req, url);
       const token = req.method === "GET" ? url.searchParams.get("token") : null;
       if (req.method === "GET") {
         const d = store.dealers.find((x) => x.token && x.token === token && x.durum === "onayli");
         if (!d) return send(pageShell("Aktivasyon", '<p class="msg msg-err">Aktivasyon bağlantısı geçersiz ya da kullanılmış.</p>'), 400);
-        return send(aktivasyonPage(token));
+        return send(aktivasyonPage(d.lang || lang, token));
       }
       const f = parseForm(await readBody(req));
       const d = store.dealers.find((x) => x.token && x.token === f.token && x.durum === "onayli");
       if (!d) return send(pageShell("Aktivasyon", '<p class="msg msg-err">Aktivasyon bağlantısı geçersiz.</p>'), 400);
       if ((f.p1 || "").length < 8 || f.p1 !== f.p2)
-        return send(aktivasyonPage(f.token, '<p class="msg msg-err">Parolalar eşleşmeli ve en az 8 karakter olmalı.</p>'));
+        return send(aktivasyonPage(d.lang || "tr", f.token, d.lang === "en"
+          ? '<p class="msg msg-err">Passwords must match and be at least 8 characters.</p>'
+          : '<p class="msg msg-err">Parolalar eşleşmeli ve en az 8 karakter olmalı.</p>'));
       Object.assign(d, hashPassword(f.p1));
       delete d.token;
       saveStore();
@@ -1031,34 +1381,74 @@ const server = http.createServer(async (req, res) => {
     if (p === "/bayi/") {
       const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
       if (!d) return redirect("/bayi/giris/");
-      return send(bayiPortalPage(d, url.searchParams.get("no") ? `<p class="msg msg-ok">Siparişiniz oluşturuldu! Sipariş numaranız: <strong>${esc(url.searchParams.get("no"))}</strong>. Ekibimiz en kısa sürede sizi arayacak.</p>` : ""));
+      const lang = bayiDil(req, url, d);
+      const T = BL[lang];
+      let m = "";
+      if (url.searchParams.get("no")) m = `<p class="msg msg-ok">${T.istek_alindi} <strong>${esc(url.searchParams.get("no"))}</strong>. ${T.istek_alindi2}</p>`;
+      if (url.searchParams.get("tesekkur")) m = `<p class="msg msg-ok">${T.tesekkur_alindi}</p>`;
+      return send(bayiPortalPage(d, lang, m));
     }
 
-    /* ---- Sipariş oluştur ---- */
+    /* ---- Sipariş isteği (sepet) ---- */
     if (p === "/bayi/siparis/" && req.method === "POST") {
       const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
       if (!d) return redirect("/bayi/giris/");
+      const lang = d.lang || "tr";
       const f = parseForm(await readBody(req));
+      let sepet = {};
+      try { sepet = JSON.parse(f.sepet || "{}"); } catch {}
       const kalemler = [];
-      let toplam = 0;
       for (const [slug, name] of PRODUCTS) {
-        const n = parseInt(f["adet_" + slug] || "0", 10);
-        if (n > 0) {
-          const fiyat = (store.prodMeta[slug] || {}).fiyat || 0;
-          kalemler.push({ slug, ad: name, adet: Math.min(n, 99999), fiyat });
-          toplam += fiyat * Math.min(n, 99999);
-        }
+        const n = parseInt(sepet[slug] || 0, 10);
+        if (n > 0) kalemler.push({ slug, ad: name, adet: Math.min(n, 99999) });
       }
-      if (!kalemler.length) return send(bayiPortalPage(d, '<p class="msg msg-err">Sipariş için en az bir üründe adet girin.</p>'));
+      if (!kalemler.length) return send(bayiPortalPage(d, lang, `<p class="msg msg-err">${BL[lang].en_az_bir}</p>`));
       const no = orderNo();
-      store.orders.push({ id: crypto.randomUUID(), no, dealerId: d.id, tarih: Date.now(), kalemler, toplam, not: clamp(f.not, 1000) });
+      store.orders.push({
+        id: crypto.randomUUID(), no, dealerId: d.id, tarih: Date.now(),
+        kalemler, not: clamp(f.not, 1000),
+        durum: "fiyat_bekliyor", fiyat: null, adminOnay: false, bayiOnay: false,
+      });
       saveStore();
-      sendMail(ORDER_EMAIL, `Yeni bayi siparişi ${no} — ${d.firma}`,
+      sendMail(ORDER_EMAIL, `Yeni sipariş isteği ${no} — ${d.firma}`,
         `Bayi: ${d.firma} (${d.yetkili})\nE-posta: ${d.eposta}\nTelefon: ${d.telefon}\n\nSipariş No: ${no}\n\n` +
-        kalemler.map((k) => `- ${k.ad} × ${k.adet}` + (k.fiyat ? ` (birim ${paraFmt(k.fiyat)}, tutar ${paraFmt(k.fiyat * k.adet)})` : "")).join("\n") +
-        (toplam ? `\n\nAra Toplam: ${paraFmt(toplam)} (KDV hariç)` : "") +
-        (f.not ? `\n\nNot: ${clamp(f.not, 1000)}` : ""));
+        kalemler.map((k) => `- ${k.ad} × ${k.adet}`).join("\n") +
+        (f.not ? `\n\nNot: ${clamp(f.not, 1000)}` : "") +
+        `\n\nFiyat belirlemek için yönetim paneline girin.`);
       return redirect("/bayi/?no=" + encodeURIComponent(no));
+    }
+
+    /* ---- Bayi fiyat onayı ---- */
+    if (p === "/bayi/onayla/" && req.method === "POST") {
+      const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
+      if (!d) return redirect("/bayi/giris/");
+      const f = parseForm(await readBody(req));
+      const o = store.orders.find((x) => x.id === f.id && x.dealerId === d.id);
+      if (o && o.durum === "fiyat_verildi" && !o.bayiOnay) {
+        o.bayiOnay = true;
+        o.bayiOnayTarihi = Date.now();
+        if (o.adminOnay) { o.durum = "hazirlaniyor"; o.kargoTarihi = Date.now(); }
+        saveStore();
+        sendMail(ORDER_EMAIL, `Bayi siparişi onayladı: ${o.no} — ${d.firma}`,
+          `${d.firma}, ${o.no} numaralı sipariş için ${paraFmt(o.fiyat)} fiyat teklifini ONAYLADI.` +
+          (o.adminOnay ? "\nHer iki onay tamam — sipariş Hazırlanıyor durumuna geçti." : "\nSizin onayınız bekleniyor (yönetim paneli → Siparişler)."));
+      }
+      return redirect("/bayi/");
+    }
+
+    /* ---- Bayi teşekkür mesajı ---- */
+    if (p === "/bayi/tesekkur/" && req.method === "POST") {
+      const d = bayiSes && store.dealers.find((x) => x.id === bayiSes.id && x.durum === "onayli");
+      if (!d) return redirect("/bayi/giris/");
+      const f = parseForm(await readBody(req));
+      const o = store.orders.find((x) => x.id === f.id && x.dealerId === d.id);
+      const mesaj = clamp(f.mesaj, 600);
+      if (o && o.durum === "teslim" && !o.tesekkur && mesaj) {
+        o.tesekkur = mesaj;
+        store.thanks.push({ tarih: Date.now(), firma: d.firma, sehir: d.sehir, no: o.no, mesaj });
+        saveStore();
+      }
+      return redirect("/bayi/?tesekkur=1");
     }
 
     if (p === "/bayi/cikis/") { setCookie(res, "bayi", "x", 0); return redirect("/"); }
@@ -1124,8 +1514,74 @@ const server = http.createServer(async (req, res) => {
         const d = store.dealers.find((x) => x.id === o.dealerId);
         return { no: o.no, firma: d ? d.firma : "" };
       });
+      const onaylar = store.orders.filter((o) => o.bayiOnayTarihi && o.bayiOnayTarihi > since).map((o) => {
+        const d = store.dealers.find((x) => x.id === o.dealerId);
+        return { no: o.no, firma: d ? d.firma : "" };
+      });
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      return res.end(JSON.stringify({ now: Date.now(), basvurular, siparisler }));
+      return res.end(JSON.stringify({ now: Date.now(), basvurular, siparisler, onaylar }));
+    }
+
+    /* ---- Admin: sipariş fiyatı belirle ---- */
+    if (p === "/admin/siparis/fiyat/" && req.method === "POST") {
+      if (!adminSes) return redirect("/admin/");
+      const f = parseForm(await readBody(req));
+      const o = store.orders.find((x) => x.id === f.id);
+      const fiyat = parseFloat(String(f.fiyat || "").replace(",", "."));
+      if (o && o.durum === "fiyat_bekliyor" && isFinite(fiyat) && fiyat > 0) {
+        o.fiyat = Math.round(fiyat * 100) / 100;
+        o.durum = "fiyat_verildi";
+        o.fiyatTarihi = Date.now();
+        saveStore();
+        const d = store.dealers.find((x) => x.id === o.dealerId);
+        if (d) sendMail(d.eposta,
+          d.lang === "en" ? `Price quote for your order ${o.no}` : `${o.no} numaralı siparişiniz için fiyat teklifi`,
+          d.lang === "en"
+            ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${paraFmt(o.fiyat)}.\nLog in to the dealer portal to approve: /bayi/giris/`
+            : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${paraFmt(o.fiyat)}.\nOnaylamak için bayi portalına giriş yapın: /bayi/giris/`);
+      }
+      return redirect("/admin/siparisler/");
+    }
+
+    /* ---- Admin: sipariş onayı ---- */
+    if (p === "/admin/siparis/onayla/" && req.method === "POST") {
+      if (!adminSes) return redirect("/admin/");
+      const f = parseForm(await readBody(req));
+      const o = store.orders.find((x) => x.id === f.id);
+      if (o && o.durum === "fiyat_verildi" && !o.adminOnay) {
+        o.adminOnay = true;
+        o.adminOnayTarihi = Date.now();
+        if (o.bayiOnay) { o.durum = "hazirlaniyor"; o.kargoTarihi = Date.now(); }
+        saveStore();
+      }
+      return redirect("/admin/siparisler/");
+    }
+
+    /* ---- Admin: kargo durumu güncelle ---- */
+    if (p === "/admin/siparis/kargo/" && req.method === "POST") {
+      if (!adminSes) return redirect("/admin/");
+      const f = parseForm(await readBody(req));
+      const o = store.orders.find((x) => x.id === f.id);
+      if (o && ["hazirlaniyor", "kargoda", "teslim"].includes(f.kdurum) &&
+          ["hazirlaniyor", "kargoda", "teslim"].includes(o.durum)) {
+        o.durum = f.kdurum;
+        o.kargoTakip = clamp(f.takip, 60);
+        saveStore();
+        const d = store.dealers.find((x) => x.id === o.dealerId);
+        if (d && f.kdurum === "kargoda") sendMail(d.eposta,
+          d.lang === "en" ? `Your order ${o.no} has been shipped` : `${o.no} numaralı siparişiniz kargoya verildi`,
+          (d.lang === "en" ? `Your order is on its way.` : `Siparişiniz yola çıktı.`) +
+          (o.kargoTakip ? `\nTakip / Tracking: ${o.kargoTakip}` : ""));
+      }
+      return redirect("/admin/siparisler/");
+    }
+
+    /* ---- Admin: bayilere fiyat gösterimi anahtarı ---- */
+    if (p === "/admin/fiyat-goster/" && req.method === "POST") {
+      if (!adminSes) return redirect("/admin/");
+      store.settings.fiyatGoster = !store.settings.fiyatGoster;
+      saveStore();
+      return redirect("/admin/fiyatlar/");
     }
 
     /* ---- Admin: içerik düzenleme ---- */
