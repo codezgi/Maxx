@@ -289,6 +289,10 @@ function editableIndex() {
   for (const [slug, name] of PRODUCTS) {
     idx[`urun:${slug}:tr`] = { file: slug + "/index.html", label: name + " — Açıklama (TR)" };
     idx[`urun:${slug}:en`] = { file: slug + "-en/index.html", label: name + " — Açıklama (EN)" };
+    idx[`spec:${slug}:tr`] = { file: slug + "/index.html", label: name + " — Teknik Tablo (TR)" };
+    idx[`spec:${slug}:en`] = { file: slug + "-en/index.html", label: name + " — Teknik Tablo (EN)" };
+    idx[`sss:${slug}:tr`] = { file: slug + "/index.html", label: name + " — SSS (TR)" };
+    idx[`sss:${slug}:en`] = { file: slug + "-en/index.html", label: name + " — SSS (EN)" };
   }
   return idx;
 }
@@ -327,6 +331,52 @@ function textToHtml(t, inline) {
   }).join("\n");
 }
 const isInlineKey = (k) => k.startsWith("ana:");
+const unesc = (x) => String(x).replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+/* Teknik tablo: her satır "Başlık | Değer" */
+function specToText(html) {
+  return [...html.matchAll(/<th>([\s\S]*?)<\/th>\s*<td>([\s\S]*?)<\/td>/g)]
+    .map((r) => unesc(r[1]).replace(/\s+/g, " ").trim() + " | " + unesc(r[2]).replace(/\s+/g, " ").trim())
+    .join("\n");
+}
+function textToSpec(t) {
+  return t.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const i = l.indexOf("|");
+    const k = (i === -1 ? l : l.slice(0, i)).trim();
+    const v = (i === -1 ? "" : l.slice(i + 1)).trim();
+    return `          <tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`;
+  }).join("\n");
+}
+
+/* SSS: soru + altına cevap; çiftler boş satırla ayrılır */
+function sssToText(html) {
+  return [...html.matchAll(/<summary>([\s\S]*?)<\/summary>\s*<p>([\s\S]*?)<\/p>/g)]
+    .map((b) => unesc(b[1]).replace(/\s+/g, " ").trim() + "\n" + unesc(b[2]).replace(/\s+/g, " ").trim())
+    .join("\n\n");
+}
+function sssParse(t) {
+  return t.replace(/\r/g, "").split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean).map((b) => {
+    const lines = b.split("\n").map((l) => l.trim()).filter(Boolean);
+    return { q: lines[0] || "", a: lines.slice(1).join(" ") };
+  }).filter((x) => x.q && x.a);
+}
+function textToSss(t) {
+  return sssParse(t).map((x) => `        <details>
+          <summary>${esc(x.q)}</summary>
+          <p>${esc(x.a)}</p>
+        </details>`).join("\n");
+}
+function sssLdScript(t) {
+  const ld = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": sssParse(t).map((x) => ({
+      "@type": "Question", "name": x.q,
+      "acceptedAnswer": { "@type": "Answer", "text": x.a },
+    })),
+  };
+  return '<script type="application/ld+json">' + JSON.stringify(ld) + "<" + "/script>";
+}
 
 // sunulurken içerik düzeltmelerini uygula
 function applyOverrides(html) {
@@ -1190,8 +1240,16 @@ function adminAciklamalarPage() {
     <tr class="aranabilir">
       <td><span class="u-kart"><img src="/assets/img/products/${slug}.webp" alt="" loading="lazy"><strong>${esc(name)}</strong></span></td>
       <td style="white-space:nowrap">
-        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:tr">Türkçe${nokta(`urun:${slug}:tr`)}</a>
-        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:en">İngilizce${nokta(`urun:${slug}:en`)}</a>
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:tr">TR${nokta(`urun:${slug}:tr`)}</a>
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=urun:${slug}:en">EN${nokta(`urun:${slug}:en`)}</a>
+      </td>
+      <td style="white-space:nowrap">
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=spec:${slug}:tr">TR${nokta(`spec:${slug}:tr`)}</a>
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=spec:${slug}:en">EN${nokta(`spec:${slug}:en`)}</a>
+      </td>
+      <td style="white-space:nowrap">
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=sss:${slug}:tr">TR${nokta(`sss:${slug}:tr`)}</a>
+        <a class="btn btn-outline btn-sm" href="/admin/icerik/?key=sss:${slug}:en">EN${nokta(`sss:${slug}:en`)}</a>
       </td>
     </tr>`).join("");
   const link = (k, l) => `<a class="btn btn-outline btn-sm aranabilir" style="margin:3px 2px" href="/admin/icerik/?key=${encodeURIComponent(k)}">${esc(l)}${nokta(k)}</a>`;
@@ -1231,7 +1289,7 @@ function adminAciklamalarPage() {
   <div class="kutu">
     <h2>Ürün Açıklamaları</h2>
     <table class="liste">
-      <thead><tr><th>Ürün</th><th>Sitedeki Açıklama</th></tr></thead>
+      <thead><tr><th>Ürün</th><th>Açıklama</th><th>Teknik Tablo</th><th>SSS</th></tr></thead>
       <tbody>${prodRows}</tbody>
     </table>
   </div>`;
@@ -1465,13 +1523,20 @@ function icerikDuzenlePage(key, msg) {
   const region = regionOf(key);
   if (!region) return null;
   const current = store.content[key] !== undefined ? store.content[key] : region.original;
-  const text = htmlToText(current);
+  const text = key.startsWith("spec:") ? specToText(current)
+             : key.startsWith("sss:") ? sssToText(current)
+             : htmlToText(current);
   const degisik = store.content[key] !== undefined;
+  const ipucu = key.startsWith("spec:")
+    ? 'Her satır bir tablo satırıdır: <span class="kod">Başlık | Değer</span> (dik çizgiyle ayırın). Satır silmek için satırı kaldırın, eklemek için yeni satır yazın.'
+    : key.startsWith("sss:")
+    ? 'İlk satır <strong>soru</strong>, altındaki satır(lar) <strong>cevaptır</strong>. Soru-cevap çiftlerini boş satırla ayırın. Kaydedince Google\'a giden SSS verisi de otomatik güncellenir.'
+    : 'Paragrafları boş satırla ayırın; madde işareti için satıra <span class="kod">- </span> ile başlayın.';
   const body = `
   <p><a href="/admin/aciklamalar/">← Açıklama &amp; Metinler</a></p>
   <span class="eyebrow">İçerik Düzenle</span>
   <h1 class="portal-title" style="font-size:1.6rem">${esc(region.meta.label)}</h1>
-  <p class="portal-sub">Paragrafları boş satırla ayırın; madde işareti için satıra <span class="kod">- </span> ile başlayın.
+  <p class="portal-sub">${ipucu}
   ${degisik ? ' <span class="durum durum-onayli">Düzenlenmiş</span>' : ' <span class="durum durum-beklemede">Orijinal</span>'}</p>
   ${msg || ""}
   <form class="kutu" method="post" action="/admin/icerik/" style="max-width:860px">
@@ -1930,12 +1995,21 @@ const server = http.createServer(async (req, res) => {
       if (!EDITABLE[key]) return redirect("/admin/");
       if (f.islem === "sifirla") {
         delete store.content[key];
+        if (key.startsWith("sss:")) delete store.content["sssld:" + key.slice(4)];
         saveStore();
         return send(icerikDuzenlePage(key, '<p class="msg msg-ok">Orijinal metne dönüldü ve yayına alındı.</p>'));
       }
       const metin = String(f.metin || "").slice(0, 20000).trim();
       if (!metin) return send(icerikDuzenlePage(key, '<p class="msg msg-err">Metin boş olamaz.</p>'));
-      store.content[key] = textToHtml(metin, isInlineKey(key));
+      if (key.startsWith("spec:")) {
+        store.content[key] = textToSpec(metin);
+      } else if (key.startsWith("sss:")) {
+        if (!sssParse(metin).length) return send(icerikDuzenlePage(key, '<p class="msg msg-err">En az bir soru-cevap çifti gerekli (ilk satır soru, altı cevap).</p>'));
+        store.content[key] = textToSss(metin);
+        store.content["sssld:" + key.slice(4)] = sssLdScript(metin); // Google SSS verisi görünürle eş
+      } else {
+        store.content[key] = textToHtml(metin, isInlineKey(key));
+      }
       saveStore();
       return send(icerikDuzenlePage(key, '<p class="msg msg-ok">Kaydedildi — web sitesinde şu anda yayında.</p>'));
     }
