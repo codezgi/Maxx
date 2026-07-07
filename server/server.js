@@ -534,8 +534,9 @@ ${opts.script || ""}
 const BL = {
 tr: {
   code: "tr", basvuru: "Bayilik Başvurusu", giris: "Bayi Girişi", portal: "Bayi Portalı",
-  basvuru_alt: 'Formu doldurun; başvurunuz onaylandığında e-posta adresinize aktivasyon bağlantısı gönderilecektir. Zaten bayimiz misiniz? <a href="/bayi/giris/">Bayi girişi yapın →</a>',
-  giris_alt: 'Henüz bayimiz değil misiniz? <a href="/bayilik-al/">Bayilik başvurusu yapın →</a>',
+  basvuru_alt: 'Formu doldurun; başvurunuz onaylandığında e-posta adresinize aktivasyon bağlantısı gönderilecektir.',
+  basvuru_btn: "Zaten bayimiz misiniz? Giriş Yapın", giris_btn: "Bayilik Başvurusu Yapın",
+  giris_alt: 'Bayi portalına hoş geldiniz.',
   firma: "Firma Adı *", yetkili: "Yetkili Ad Soyad *", eposta: "E-posta *", telefon: "Telefon *",
   sehir: "Şehir *", adres: "Açık Adres *", adres_ph: "Mahalle, cadde, no, ilçe, il",
   harita_bul: "Haritada Bul", harita_lbl: "Haritada Konumunuz *",
@@ -568,8 +569,9 @@ tr: {
 },
 en: {
   code: "en", basvuru: "Dealer Application", giris: "Dealer Login", portal: "Dealer Portal",
-  basvuru_alt: 'Fill out the form; when approved, an activation link will be sent to your e-mail. Already a dealer? <a href="/bayi/giris/?lang=en">Log in →</a>',
-  giris_alt: 'Not a dealer yet? <a href="/bayilik-al/?lang=en">Apply for dealership →</a>',
+  basvuru_alt: 'Fill out the form; when approved, an activation link will be sent to your e-mail.',
+  basvuru_btn: "Already a dealer? Log In", giris_btn: "Apply for Dealership",
+  giris_alt: 'Welcome to the dealer portal.',
   firma: "Company Name *", yetkili: "Contact Person *", eposta: "E-mail *", telefon: "Phone *",
   sehir: "City *", adres: "Full Address *", adres_ph: "Street, number, district, city, country",
   harita_bul: "Find on Map", harita_lbl: "Your Location on the Map *",
@@ -620,6 +622,7 @@ function bayilikAlPage(lang, msg) {
   <span class="eyebrow">Maxx Global</span>
   <h1 class="portal-title" style="font-size:2rem">${T.basvuru}</h1>
   <p class="portal-sub">${T.basvuru_alt}</p>
+  <p style="margin:-10px 0 26px"><a class="btn btn-outline btn-sm" href="/bayi/giris/${lang === "en" ? "?lang=en" : ""}">${T.basvuru_btn} →</a></p>
   ${msg || ""}
   <form class="form-wrap" method="post" action="/bayilik-al/" style="max-width:860px" onsubmit="return kontrol()">
     <input type="hidden" name="lang" value="${lang}">
@@ -700,6 +703,7 @@ function bayiGirisPage(lang, msg) {
   <span class="eyebrow">${T.portal}</span>
   <h1 class="portal-title" style="font-size:2rem">${T.giris}</h1>
   <p class="portal-sub">${T.giris_alt}</p>
+  <p style="margin:-10px 0 26px"><a class="btn btn-outline btn-sm" href="/bayilik-al/${lang === "en" ? "?lang=en" : ""}">${T.giris_btn} →</a></p>
   ${msg || ""}
   <form class="form-wrap" method="post" action="/bayi/giris/" style="max-width:480px">
     <input type="hidden" name="lang" value="${lang}">
