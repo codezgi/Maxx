@@ -26,9 +26,7 @@ if (fs.existsSync(ENV_FILE)) {
   }
 }
 
-// PORT: sayısal port ise sayı, Passenger/cPanel gibi Unix soketi (yol) veriyorsa metin olarak kullan
-const _portEnv = process.env.PORT;
-const PORT = _portEnv ? (/^\d+$/.test(_portEnv) ? parseInt(_portEnv, 10) : _portEnv) : 8000;
+const PORT = parseInt(process.env.PORT || "8000", 10);
 const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const ORDER_EMAIL = process.env.ORDER_EMAIL || "info@maxx-global.net";
 const RESEND_KEY = process.env.RESEND_API_KEY || "";
@@ -2064,8 +2062,8 @@ const server = http.createServer(async (req, res) => {
 loadStore();
 const generatedPw = ensureAdmin();
 server.listen(PORT, () => {
-  console.log(`Maxx Global sitesi + bayi portalı çalışıyor (PORT: ${PORT})`);
-  console.log(`Yönetim paneli: /admin/  (${store.admin.email})`);
+  console.log(`Maxx Global sitesi + bayi portalı çalışıyor (port ${PORT})`);
+  console.log(`Yönetim paneli girişi: /admin/  (${store.admin.email})`);
   if (generatedPw) console.log(`İlk kurulum yönetici parolası: ${generatedPw}  ← .env dosyasına da yazıldı sanmayın; kaydedin!`);
   if (!RESEND_KEY) console.log("Not: RESEND_API_KEY tanımlı değil — e-postalar konsola yazılır.");
 });
