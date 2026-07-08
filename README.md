@@ -5,7 +5,7 @@ WordPress/framework yok; saf HTML + tek CSS dosyası + tek küçük JS dosyası.
 76 sayfa: 38 Türkçe + 38 İngilizce (hreflang etiketleriyle bağlı).
 
 ## Klasör Yapısı
-
+ 
 ```
 index.html              → Türkçe ana sayfa
 hakkimizda/ vb.         → Türkçe sayfalar (tüm sayfalar klasör içinde index.html)
