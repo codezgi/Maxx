@@ -162,6 +162,7 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
 .btn svg { width: 15px; height: 15px; flex: none; }
 .nav-burger { display: none; flex-direction: column; gap: 5px; padding: 8px; }
 .nav-burger span { width: 24px; height: 2.5px; background: var(--white); border-radius: 2px; transition: transform .25s, opacity .25s; }
+.nav-close { display: none; }
 
 /* ---------- Mobil menü ---------- */
 @media (max-width: 1080px) {
@@ -174,6 +175,13 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
     position: fixed; inset: 0; top: 0; z-index: 99;
     background: var(--white); padding: 110px 24px 40px;
     overflow-y: auto; display: none;
+  }
+  .nav-close {
+    display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 28px; right: 24px;
+    width: 44px; height: 44px; border: 1px solid var(--line);
+    border-radius: 50%; color: var(--primary); background: var(--white);
+    box-shadow: var(--shadow-sm); font-size: 2rem; line-height: 1;
   }
   body.nav-open .main-nav { display: block; }
   body.nav-open { overflow: hidden; }

@@ -8,6 +8,7 @@
 
   /* ---------- Mobil menü ---------- */
   var burger = document.querySelector(".nav-burger");
+  var closeButton = document.querySelector(".nav-close");
   var subToggles = document.querySelectorAll(".nav-toggle-sub");
   function closeMobileNav() {
     document.body.classList.remove("nav-open");
@@ -23,6 +24,9 @@
       burger.setAttribute("aria-expanded", open ? "true" : "false");
       if (!open) closeMobileNav();
     });
+  }
+  if (closeButton) {
+    closeButton.addEventListener("click", closeMobileNav);
   }
   subToggles.forEach(function (btn) {
     btn.setAttribute("aria-expanded", "false");
