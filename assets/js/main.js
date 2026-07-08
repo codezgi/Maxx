@@ -8,12 +8,50 @@
 
   /* ---------- Mobil menü ---------- */
   var burger = document.querySelector(".nav-burger");
+  var subToggles = document.querySelectorAll(".nav-toggle-sub");
+  function closeMobileNav() {
+    document.body.classList.remove("nav-open");
+    if (burger) burger.setAttribute("aria-expanded", "false");
+    subToggles.forEach(function (btn) {
+      btn.setAttribute("aria-expanded", "false");
+      if (btn.parentElement) btn.parentElement.classList.remove("sub-open");
+    });
+  }
   if (burger) {
     burger.addEventListener("click", function () {
       var open = document.body.classList.toggle("nav-open");
       burger.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open) closeMobileNav();
     });
   }
+  subToggles.forEach(function (btn) {
+    btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("click", function () {
+      if (!window.matchMedia("(max-width: 1080px)").matches) return;
+      var item = btn.parentElement;
+      var willOpen = !item.classList.contains("sub-open");
+      document.querySelectorAll(".nav > li.sub-open").forEach(function (li) {
+        if (li !== item) {
+          li.classList.remove("sub-open");
+          var other = li.querySelector(".nav-toggle-sub");
+          if (other) other.setAttribute("aria-expanded", "false");
+        }
+      });
+      item.classList.toggle("sub-open", willOpen);
+      btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    });
+  });
+  document.querySelectorAll(".main-nav a").forEach(function (link) {
+    link.addEventListener("click", function () {
+      if (window.matchMedia("(max-width: 1080px)").matches) closeMobileNav();
+    });
+  });
+  window.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") closeMobileNav();
+  });
+  window.addEventListener("resize", function () {
+    if (!window.matchMedia("(max-width: 1080px)").matches) closeMobileNav();
+  });
 
   /* ---------- Hero videosu ----------
      Tarayıcılar otomatik oynatmaya yalnızca video sessizse izin verir ve

@@ -186,9 +186,12 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
   .dropdown {
     position: static; opacity: 1; visibility: visible; transform: none;
     border: 0; box-shadow: none; padding: 0 0 0 16px; min-width: 0;
+    display: none;
   }
+  .nav > li.sub-open > .dropdown { display: block; }
   .dropdown a { font-size: .95rem; color: var(--text); }
   .nav .caret { margin-left: auto; }
+  .nav > li.sub-open > .nav-toggle-sub .caret { transform: rotate(225deg) translate(-2px, -2px); }
   .nav-mobile-cta { margin-top: 20px; display: block; text-align: center; }
   .nav-mobile-cta + .nav-mobile-cta { margin-top: 10px; }
 }
