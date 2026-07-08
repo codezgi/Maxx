@@ -1,5 +1,6 @@
 {
   "trailingSlash": true,
+  "rewrites":[{"source":"/form-handler.php","destination":"https://api.maxx-global.net/form-handler.php"},{"source":"/bayilik-al","destination":"https://api.maxx-global.net/bayilik-al"},{"source":"/bayilik-al/:path*","destination":"https://api.maxx-global.net/bayilik-al/:path*"},{"source":"/bayi","destination":"https://api.maxx-global.net/bayi"},{"source":"/bayi/:path*","destination":"https://api.maxx-global.net/bayi/:path*"},{"source":"/admin","destination":"https://api.maxx-global.net/admin"},{"source":"/admin/:path*","destination":"https://api.maxx-global.net/admin/:path*"}],
   "headers": [
     {
       "source": "/assets/(.*)",
