@@ -1838,10 +1838,13 @@ const server = http.createServer(async (req, res) => {
         d.onayTarihi = Date.now();
         d.token = crypto.randomBytes(24).toString("base64url");
         saveStore();
-        const base = (IS_PROD ? "https://" : "http://") + (req.headers.host || "localhost");
-        sendMail(d.eposta, "Maxx Global bayilik başvurunuz onaylandı",
+        // Vercel arkasında gerçek alan adı x-forwarded-host'tadır (host = api.maxx-global.net olur)
+        const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
+        const base = (IS_PROD ? "https://" : "http://") + host;
+        const gitti = await sendMail(d.eposta, "Maxx Global bayilik başvurunuz onaylandı",
           `Sayın ${d.yetkili},\n\n${d.firma} adına yaptığınız bayilik başvurusu onaylanmıştır.\n` +
           `Hesabınızı etkinleştirmek için: ${base}/bayi/aktivasyon/?token=${d.token}\n\nMaxx Global Medikal`);
+        return redirect("/admin/onaylar/?mail=" + (gitti ? "ok" : "hata"));
       } else if (d) {
         d.durum = "reddedildi";
         saveStore();
@@ -1852,7 +1855,11 @@ const server = http.createServer(async (req, res) => {
     /* ---- Admin: menü sayfaları ---- */
     if (p === "/admin/onaylar/" && req.method === "GET") {
       if (!adminSes) return redirect("/admin/");
-      return send(adminOnaylarPage());
+      const m = url.searchParams.get("mail");
+      return send(adminOnaylarPage(
+        m === "ok" ? '<p class="msg msg-ok">Bayi onaylandı; aktivasyon e-postası gönderildi.</p>'
+        : m === "hata" ? '<p class="msg msg-err">Bayi onaylandı ancak aktivasyon e-postası GÖNDERİLEMEDİ. Aşağıdaki tablodan aktivasyon bağlantısını kopyalayıp bayiye iletebilirsiniz. (Olası neden: Resend alan adı doğrulaması eksik ya da MAIL_FROM ayarı yanlış — Railway loglarına bakın.)</p>'
+        : ""));
     }
     if (p === "/admin/fiyatlar/" && req.method === "GET") {
       if (!adminSes) return redirect("/admin/");
