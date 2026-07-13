@@ -1,0 +1,7 @@
+# HTML sayfaları Vercel'e deploy ETME — hepsi Railway'den (api.maxx-global.net)
+# sunulur ki admin paneli içerik düzenlemeleri anında siteye yansısın.
+# Statik dosya deploy'da bulunursa Vercel rewrite'ı atlar; bu yüzden HTML'ler dışarıda.
+**/*.html
+server
+.htaccess
+*.md
