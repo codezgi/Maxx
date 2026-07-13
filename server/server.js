@@ -105,6 +105,7 @@ function verifyPassword(pw, salt, hash) {
 /* ---------------- admin hesabını hazırla ---------------- */
 
 function ensureAdmin() {
+   if (process.env.ADMIN_PASSWORD) { const _h = hashPassword(process.env.ADMIN_PASSWORD); store.admin = { email: process.env.ADMIN_EMAIL || "info@maxx-global.net", salt: _h.salt, hash: _h.hash }; saveStore(); return null; }
   if (store.admin) return null;
   const email = process.env.ADMIN_EMAIL || "info@maxx-global.net";
   let pw = process.env.ADMIN_PASSWORD;
