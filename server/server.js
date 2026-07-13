@@ -1183,7 +1183,7 @@ function adminOnaylarPage(msg) {
       <td>${esc(d.eposta)}<br><small>${esc(d.telefon)}</small></td>
       <td>${esc(d.adres)}</td>
       <td><span class="durum durum-${d.durum}">${{ beklemede: "Onay Bekliyor", onayli: d.salt ? "Aktif" : "Aktivasyon Bekliyor", reddedildi: "Reddedildi" }[d.durum]}</span></td>
-      <td>${d.durum === "onayli" && !d.salt ? `<span class="kod">/bayi/aktivasyon/?token=${esc(d.token)}</span>` : ""}</td>
+      <td>${d.durum === "onayli" && !d.salt ? `<span class="kod">www.maxx-global.net/bayi/aktivasyon/?token=${esc(d.token)}</span>` : ""}</td>
     </tr>`).join("");
   const body = `
   <span class="eyebrow">Yönetim Paneli</span>
