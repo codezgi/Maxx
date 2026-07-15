@@ -438,6 +438,8 @@ ${opts.leaflet ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/d
   .portal-main { padding: clamp(32px, 5vw, 56px) 0; min-height: 60vh; }
   .portal-title { margin-bottom: 6px; }
   .portal-sub { margin-bottom: 28px; }
+  .login-actions { display: flex; flex-direction: column; align-items: center; gap: 18px; margin-top: 22px; }
+  .login-actions a { font-size: .9rem; font-weight: 600; }
   .msg { padding: 14px 18px; border-radius: 10px; margin-bottom: 20px; font-weight: 600; }
   .msg-ok { background: #e5f7ee; color: #14734a; }
   .msg-err { background: #fdeaea; color: #b23333; }
@@ -589,7 +591,7 @@ tr: {
   fiyat_arayin: "", en_az_bir: "Sepetiniz boş — en az bir ürün ekleyin.",
   aktivasyon: "Hesap Aktivasyonu", akt_alt: "Başvurunuz onaylandı! Portala giriş için bir parola belirleyin.",
   p1: "Parola (en az 8 karakter)", p2: "Parola (tekrar)", etkinlestir: "Hesabı Etkinleştir",
-  sifremi_unuttum: "Şifremi Unuttum", sifre_sifirla: "Parola Sıfırlama",
+  sifremi_unuttum: "Şifrenizi mi unuttunuz?", sifre_sifirla: "Parola Sıfırlama",
   sifre_sifirla_alt: "E-posta adresinizi girin; hesabınız kayıtlıysa parola sıfırlama bağlantısı gönderilecektir.",
   sifre_sifirla_akt_alt: "Yeni parolanızı belirleyin.",
   sifirlama_gonder: "Sıfırlama Bağlantısı Gönder", parola_guncelle: "Parolayı Güncelle",
@@ -752,8 +754,10 @@ function bayiGirisPage(lang, msg) {
       <p class="form-field"><label for="eposta">${T.eposta.replace(" *","")}</label><input id="eposta" name="eposta" type="email" required></p>
       <p class="form-field"><label for="parola">${T.parola}</label><input id="parola" name="parola" type="password" required></p>
     </div>
-    <p style="text-align:right;margin-top:-10px"><a href="/bayi/sifremi-unuttum/${lang === "en" ? "?lang=en" : ""}" style="font-size:.9rem">${T.sifremi_unuttum}</a></p>
-    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.giris_yap}</button></p>
+    <div class="login-actions">
+      <a href="/bayi/sifremi-unuttum/${lang === "en" ? "?lang=en" : ""}">${T.sifremi_unuttum}</a>
+      <button class="btn btn-accent" type="submit">${T.giris_yap}</button>
+    </div>
   </form>`;
   return pageShell(T.giris, body, { nav: dilSec(lang, "/bayi/giris/") + `<a href="/">${T.siteye_don}</a>` });
 }
