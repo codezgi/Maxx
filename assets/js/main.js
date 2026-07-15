@@ -127,8 +127,13 @@
   }, { rootMargin: "0px 0px -10% 0px" });
   seen.forEach(function (el) { io.observe(el); });
 
-  /* ---------- 2) Harf harf başlık açılması (text-anime-style-3 karşılığı) ---------- */
-  var taTargets = document.querySelectorAll(".hero h1, .page-hero h1, .section-head h2");
+  /* ---------- 2) Harf harf başlık açılması (text-anime-style-3 karşılığı)
+     Yalnızca sayfanın tek ana başlığında (hero/page-hero h1) uygulanır — bölüm
+     başlıklarında (.section-head h2) metni parçalamak, arama motoru/LLM
+     tarayıcılarının ham HTML'de okuduğu metni gereksiz yere "işlenmiş" hale
+     getiriyordu (GEO denetimi). section-head zaten kendi fadeInUp efektini
+     data-anim ile alıyor, o yüzden görsel kayıp yok. */
+  var taTargets = document.querySelectorAll(".hero h1, .page-hero h1");
   var taIO = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) {
       if (e.isIntersecting) {
