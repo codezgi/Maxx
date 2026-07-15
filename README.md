@@ -1,5 +1,4 @@
-# Maxx Global Medikal — Statik Web Sitesi (TR + EN)
-
+# Maxx Global Medikal — Statik Web Sitesi (TR + EN) 
 www.maxx-global.net için elle kodlanmış, hızlı ve SEO uyumlu statik site.
 WordPress/framework yok; saf HTML + tek CSS dosyası + tek küçük JS dosyası.
 76 sayfa: 38 Türkçe + 38 İngilizce (hreflang etiketleriyle bağlı).
