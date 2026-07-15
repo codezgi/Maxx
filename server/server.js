@@ -2126,7 +2126,9 @@ const server = http.createServer(async (req, res) => {
       if (d) {
         d.token = crypto.randomBytes(24).toString("base64url");
         saveStore();
-        const base = (IS_PROD ? "https://" : "http://") + (req.headers.host || "localhost");
+        // Vercel arkasında gerçek alan adı x-forwarded-host'tadır (host = api.maxx-global.net olur)
+        const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
+        const base = (IS_PROD ? "https://" : "http://") + host;
         const isReset = !!d.salt;
         sendMail(d.eposta, isReset ? "Maxx Global parola sıfırlama" : "Maxx Global bayilik hesabınızı etkinleştirin",
           `Sayın ${d.yetkili},\n\n` +
