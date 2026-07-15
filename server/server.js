@@ -71,6 +71,7 @@ function loadStore() {
   store.quotes = store.quotes || [];
   store.settings = store.settings || { fiyatGoster: false }; // bayilere fiyat gösterimi anahtarı
   store.thanks = store.thanks || [];     // bayi teşekkür mesajları
+  store.customProducts = store.customProducts || []; // admin'in eklediği ürünler
   for (const o of store.orders) {        // eski siparişleri yeni akışa taşı
     if (!o.durum) { o.durum = "teslim"; o.fiyat = o.toplam || null; o.adminOnay = true; o.bayiOnay = true; }
   }
@@ -183,10 +184,10 @@ async function sendMail(to, subject, text) {
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-function readBody(req) {
+function readBody(req, maxBytes = 100_000) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
-    req.on("data", (c) => { size += c.length; if (size > 100_000) { reject(new Error("too big")); req.destroy(); } else chunks.push(c); });
+    req.on("data", (c) => { size += c.length; if (size > maxBytes) { reject(new Error("too big")); req.destroy(); } else chunks.push(c); });
     req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
@@ -206,7 +207,15 @@ function orderNo() {
   const n = store.seq.order++;
   return `MG-${new Date().getFullYear()}-${String(n).padStart(4, "0")}`;
 }
-const paraFmt = (n) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n);
+const PARA_BIRIMLERI = {
+  TRY: { ad: "TL", simge: "₺" },
+  USD: { ad: "Dolar", simge: "$" },
+  EUR: { ad: "Euro", simge: "€" },
+};
+const paraBirimi = (kod) => PARA_BIRIMLERI[kod] ? kod : "TRY";
+const paraFmt = (n, kod = "TRY") =>
+  new Intl.NumberFormat("tr-TR", { style: "currency", currency: paraBirimi(kod) }).format(n);
+const siparisParaFmt = (o, n) => paraFmt(n, o && o.paraBirimi);
 
 /* Sipariş akışı: fiyat_bekliyor → fiyat_verildi → (çift onay) hazirlaniyor → kargoda → teslim */
 const DURUM_TR = { fiyat_bekliyor: "Fiyat Bekleniyor", fiyat_verildi: "Onay Bekleniyor",
@@ -223,7 +232,7 @@ function indirimTutarOf(o) {
   return 0;
 }
 function indirimEtiketi(o) {
-  if (o.indirimTip === "tutar") return paraFmt(o.indirimDeger || o.indirimTutar || 0);
+  if (o.indirimTip === "tutar") return siparisParaFmt(o, o.indirimDeger || o.indirimTutar || 0);
   return "%" + (o.indirimDeger ?? o.indirim ?? 0);
 }
 
@@ -232,9 +241,13 @@ function kargoStepper(durum, lang) {
     ? [["hazirlaniyor", "Preparing"], ["kargoda", "Shipped"], ["teslim", "Delivered"]]
     : [["hazirlaniyor", "Hazırlanıyor"], ["kargoda", "Kargoya Verildi"], ["teslim", "Teslim Edildi"]];
   const sira = ["hazirlaniyor", "kargoda", "teslim"].indexOf(durum);
+  const sonIndex = adimlar.length - 1;
   return '<div class="stepper">' + adimlar.map(([k, ad], i) => {
-    const cls = i < sira ? "tamam" : (i === sira ? "aktif" : "");
-    return `<div class="adim ${cls}"><span class="nokta">${i < sira ? "✓" : i + 1}</span><small>${ad}</small></div>`;
+    // "teslim" son adımdır; o duruma ulaşıldığında sonraki bir adım olmadığı için
+    // kendisi de tamamlanmış sayılıp diğerleri gibi ✓ almalı.
+    const tamam = i < sira || (i === sira && i === sonIndex);
+    const cls = tamam ? "tamam" : (i === sira ? "aktif" : "");
+    return `<div class="adim ${cls}"><span class="nokta">${tamam ? "✓" : i + 1}</span><small>${ad}</small></div>`;
   }).join('<div class="cizgi"></div>') + "</div>";
 }
 
@@ -388,6 +401,16 @@ function applyOverrides(html) {
     if (j === -1) continue;
     html = html.slice(0, i + a.length) + "\n" + store.content[key] + "\n" + html.slice(j);
   }
+  // Yeni ürünleri ürün listesine ekle
+  if (store.customProducts.length && html.includes("<!--custom:urunler:")) {
+    for (const lang of ["tr", "en"]) {
+      const marker = `<!--custom:urunler:${lang}-->`;
+      if (html.includes(marker)) {
+        const cards = store.customProducts.map((cp) => customProductCard(cp, lang)).join("\n");
+        html = html.replace(marker, cards);
+      }
+    }
+  }
   return html;
 }
 
@@ -490,6 +513,7 @@ ${opts.leaflet ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/d
   .sepet-fab:hover { transform: translateY(-2px); }
   .fab-badge { background: #fff; color: var(--primary); border-radius: 999px; min-width: 26px; height: 26px;
     display: grid; place-items: center; font-size: .85rem; font-weight: 800; padding: 0 7px; }
+  .ikon-sepet { width: 18px; height: 18px; flex: none; vertical-align: -3px; }
   .sepet-fab.zipla { animation: fabzip .45s ease; }
   @keyframes fabzip { 30% { transform: scale(1.18); } 60% { transform: scale(.94); } }
   .ucan-img { position: fixed; z-index: 500; object-fit: cover; border-radius: 12px;
@@ -506,6 +530,12 @@ ${opts.leaflet ? '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/d
   .fiyat-tablo input.birim { width: 110px; border: 1.5px solid var(--line); border-radius: 8px; padding: 7px 9px; }
   .fiyat-ozet { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; margin-top: 12px; font-size: .95rem; }
   .fiyat-ozet .genel { font-size: 1.2rem; font-weight: 800; color: var(--heading); }
+  .doviz-sec { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 14px; }
+  .doviz-sec input { position: absolute; opacity: 0; pointer-events: none; }
+  .doviz-sec span { display: flex; align-items: center; gap: 7px; min-width: 92px; justify-content: center;
+    border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 12px; font-weight: 800;
+    color: var(--heading); background: #fff; cursor: pointer; }
+  .doviz-sec input:checked + span { border-color: var(--accent); background: rgba(0, 168, 188, .1); color: var(--accent-dark, #008a9b); }
   @media print {
     .portal-header, .yazdirma-gizle, .sepet-fab { display: none !important; }
     body { background: #fff; } .kutu { border: 0; box-shadow: none; padding: 0; }
@@ -546,7 +576,7 @@ tr: {
   parola: "Parola", giris_yap: "Giriş Yap", siteye_don: "← Siteye Dön", cikis: "Çıkış Yap",
   hosgeldin: "Hoş geldiniz", portal_alt: "Ürünlerden sepetinize ekleyip sipariş isteği oluşturun; ekibimiz fiyat teklifiyle dönüş yapacaktır.",
   urunler: "Ürünler", sepet: "Sepetim", sepet_bos: "Sepetiniz boş. Ürünlerden adet belirleyip ekleyin.",
-  sepete_ekle: "Ekle", cikar: "✕", adet: "adet", not_lbl: "Sipariş Notu (isteğe bağlı)",
+  sepete_ekle: "Sepete Ekle", cikar: "✕", adet: "adet", not_lbl: "Sipariş Notu (isteğe bağlı)",
   istek_olustur: "Sipariş İsteği Oluştur", siparislerim: "Siparişlerim", siparis_yok: "Henüz siparişiniz yok.",
   fiyat_teklif: "Fiyat Teklifi", teklif_msg: "siparişiniz için fiyat teklifimiz:", onayla: "Onayla",
   onay_bekle_admin: "Firma onayı bekleniyor", onay_sen: "Onayınız alındı",
@@ -558,6 +588,11 @@ tr: {
   fiyat_arayin: "", en_az_bir: "Sepetiniz boş — en az bir ürün ekleyin.",
   aktivasyon: "Hesap Aktivasyonu", akt_alt: "Başvurunuz onaylandı! Portala giriş için bir parola belirleyin.",
   p1: "Parola (en az 8 karakter)", p2: "Parola (tekrar)", etkinlestir: "Hesabı Etkinleştir",
+  sifremi_unuttum: "Şifremi Unuttum", sifre_sifirla: "Parola Sıfırlama",
+  sifre_sifirla_alt: "E-posta adresinizi girin; hesabınız kayıtlıysa parola sıfırlama bağlantısı gönderilecektir.",
+  sifre_sifirla_akt_alt: "Yeni parolanızı belirleyin.",
+  sifirlama_gonder: "Sıfırlama Bağlantısı Gönder", parola_guncelle: "Parolayı Güncelle",
+  sifirlama_gonderildi_msg: "E-posta adresiniz sistemde kayıtlıysa, parola sıfırlama bağlantısı gönderildi. Gelen kutunuzu kontrol edin.",
   sepet_bak: "Sepeti İncele", sepet_onayla: "Sipariş İsteğini Onayla ve Gönder", kaldir: "Kaldır",
   teklif_dokum: "Teklif Dökümünü Görüntüle", pdf_indir: "PDF Olarak Kaydet / Yazdır",
   siparis_takip: "Sipariş Takibi",
@@ -581,7 +616,7 @@ en: {
   parola: "Password", giris_yap: "Log In", siteye_don: "← Back to Site", cikis: "Log Out",
   hosgeldin: "Welcome", portal_alt: "Add products to your cart and create an order request; our team will respond with a price quote.",
   urunler: "Products", sepet: "My Cart", sepet_bos: "Your cart is empty. Set quantities and add products.",
-  sepete_ekle: "Add", cikar: "✕", adet: "pcs", not_lbl: "Order Note (optional)",
+  sepete_ekle: "Add to Cart", cikar: "✕", adet: "pcs", not_lbl: "Order Note (optional)",
   istek_olustur: "Create Order Request", siparislerim: "My Orders", siparis_yok: "No orders yet.",
   fiyat_teklif: "Price Quote", teklif_msg: "our price quote for your order:", onayla: "Approve",
   onay_bekle_admin: "Awaiting company approval", onay_sen: "Your approval received",
@@ -593,6 +628,11 @@ en: {
   fiyat_arayin: "", en_az_bir: "Your cart is empty — add at least one product.",
   aktivasyon: "Account Activation", akt_alt: "Your application is approved! Set a password to log in.",
   p1: "Password (min. 8 characters)", p2: "Password (repeat)", etkinlestir: "Activate Account",
+  sifremi_unuttum: "Forgot Password?", sifre_sifirla: "Reset Password",
+  sifre_sifirla_alt: "Enter your e-mail; if your account exists, a reset link will be sent.",
+  sifre_sifirla_akt_alt: "Set your new password.",
+  sifirlama_gonder: "Send Reset Link", parola_guncelle: "Update Password",
+  sifirlama_gonderildi_msg: "If your e-mail is registered, a password reset link has been sent. Check your inbox.",
   sepet_bak: "Review Cart", sepet_onayla: "Confirm & Send Order Request", kaldir: "Remove",
   teklif_dokum: "View Quote Breakdown", pdf_indir: "Save as PDF / Print",
   siparis_takip: "Order Tracking",
@@ -711,17 +751,38 @@ function bayiGirisPage(lang, msg) {
       <p class="form-field"><label for="eposta">${T.eposta.replace(" *","")}</label><input id="eposta" name="eposta" type="email" required></p>
       <p class="form-field"><label for="parola">${T.parola}</label><input id="parola" name="parola" type="password" required></p>
     </div>
+    <p style="text-align:right;margin-top:-10px"><a href="/bayi/sifremi-unuttum/${lang === "en" ? "?lang=en" : ""}" style="font-size:.9rem">${T.sifremi_unuttum}</a></p>
     <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.giris_yap}</button></p>
   </form>`;
   return pageShell(T.giris, body, { nav: dilSec(lang, "/bayi/giris/") + `<a href="/">${T.siteye_don}</a>` });
 }
 
-function aktivasyonPage(lang, token, msg) {
+function sifremiUnuttumPage(lang, msg) {
   const T = BL[lang];
   const body = `
   <span class="eyebrow">${T.portal}</span>
-  <h1 class="portal-title" style="font-size:2rem">${T.aktivasyon}</h1>
-  <p class="portal-sub">${T.akt_alt}</p>
+  <h1 class="portal-title" style="font-size:2rem">${T.sifre_sifirla}</h1>
+  <p class="portal-sub">${T.sifre_sifirla_alt}</p>
+  ${msg || ""}
+  <form class="form-wrap" method="post" action="/bayi/sifremi-unuttum/" style="max-width:480px">
+    <input type="hidden" name="lang" value="${lang}">
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <p class="form-field"><label for="eposta">${T.eposta.replace(" *", "")}</label><input id="eposta" name="eposta" type="email" required></p>
+    </div>
+    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.sifirlama_gonder}</button></p>
+  </form>
+  <p class="mt-4 text-center"><a href="/bayi/giris/${lang === "en" ? "?lang=en" : ""}">← ${T.giris}</a></p>`;
+  return pageShell(T.sifre_sifirla, body, { nav: dilSec(lang, "/bayi/sifremi-unuttum/") + `<a href="/">${T.siteye_don}</a>` });
+}
+
+function aktivasyonPage(lang, token, msg, isReset) {
+  const T = BL[lang];
+  const baslik = isReset ? T.sifre_sifirla : T.aktivasyon;
+  const altYazi = isReset ? T.sifre_sifirla_akt_alt : T.akt_alt;
+  const body = `
+  <span class="eyebrow">${T.portal}</span>
+  <h1 class="portal-title" style="font-size:2rem">${baslik}</h1>
+  <p class="portal-sub">${altYazi}</p>
   ${msg || ""}
   <form class="form-wrap" method="post" action="/bayi/aktivasyon/" style="max-width:480px">
     <input type="hidden" name="token" value="${esc(token)}">
@@ -729,10 +790,12 @@ function aktivasyonPage(lang, token, msg) {
       <p class="form-field"><label for="p1">${T.p1}</label><input id="p1" name="p1" type="password" minlength="8" required></p>
       <p class="form-field"><label for="p2">${T.p2}</label><input id="p2" name="p2" type="password" minlength="8" required></p>
     </div>
-    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${T.etkinlestir}</button></p>
+    <p class="mt-4 text-center"><button class="btn btn-accent" type="submit">${isReset ? T.parola_guncelle : T.etkinlestir}</button></p>
   </form>`;
-  return pageShell(T.aktivasyon, body);
+  return pageShell(baslik, body);
 }
+
+const SEPET_SVG = '<svg class="ikon-sepet" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>';
 
 function bayiPortalPage(dealer, lang, msg) {
   const T = BL[lang];
@@ -741,17 +804,18 @@ function bayiPortalPage(dealer, lang, msg) {
   const myOrders = store.orders.filter((o) => o.dealerId === dealer.id);
   const bekleyenTeklif = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).length;
 
-  const urunKartlari = PRODUCTS.map(([slug, name]) => {
-    const fiyat = fiyatAcik ? (store.prodMeta[slug] || {}).fiyat : null;
+  const urunKartlari = allDealerProducts().map(([slug, name]) => {
+    const meta = store.prodMeta[slug] || {};
+    const fiyat = fiyatAcik ? meta.fiyat : null;
     return `
       <div class="urun-kart">
-        <img src="/assets/img/products/${slug}.webp" alt="${esc(name)}" loading="lazy">
+        <img src="${prodImg(slug)}" alt="${esc(name)}" loading="lazy">
         <div class="uk-govde">
           <strong>${esc(name)}</strong>
-          ${fiyat ? `<span class="uk-fiyat">${paraFmt(fiyat)}</span>` : ""}
+          ${fiyat ? `<span class="uk-fiyat">${paraFmt(fiyat, meta.paraBirimi)}</span>` : ""}
           <div class="uk-adet">
             <input type="number" min="1" max="99999" value="1" id="adet-${slug}" aria-label="adet">
-            <button type="button" class="btn btn-outline btn-sm" onclick="sepeteEkle('${slug}', this)">${T.sepete_ekle} +</button>
+            <button type="button" class="btn btn-accent btn-sm" onclick="sepeteEkle('${slug}', this)">${SEPET_SVG} ${T.sepete_ekle}</button>
           </div>
         </div>
       </div>`;
@@ -768,11 +832,11 @@ function bayiPortalPage(dealer, lang, msg) {
     <div class="urun-grid">${urunKartlari}</div>
   </div>
   <button type="button" id="sepetFab" class="sepet-fab" onclick="sepetAc()" aria-label="${T.sepet}">
-    🛒 ${T.sepet} <span id="sepetSayi" class="fab-badge">0</span>
+    ${SEPET_SVG} ${T.sepet} <span id="sepetSayi" class="fab-badge">0</span>
   </button>
 
   <dialog class="dlg" id="dlg-sepet">
-    <div class="dlg-head"><h2>🛒 ${T.sepet}</h2>
+    <div class="dlg-head"><h2>${SEPET_SVG} ${T.sepet}</h2>
       <button type="button" class="dlg-kapat" onclick="this.closest('dialog').close()" aria-label="${T.kapat}">✕</button></div>
     <div class="dlg-govde">
       <div id="sepetListe"><p class="sepet-bos" style="color:var(--text)">${T.sepet_bos}</p></div>
@@ -789,7 +853,7 @@ function bayiPortalPage(dealer, lang, msg) {
   </dialog>`;
 
   const adlar = {};
-  for (const [slug, name] of PRODUCTS) adlar[slug] = name;
+  for (const [slug, name] of allDealerProducts()) adlar[slug] = name;
   const script = `<script>
     var URUNLER = ${JSON.stringify(adlar)};
     var sepet = {};
@@ -874,7 +938,7 @@ function bayiSiparislerPage(dealer, lang, msg) {
 
   const teklifler = myOrders.filter((o) => o.durum === "fiyat_verildi" && !o.bayiOnay).map((o) => `
     <div class="msg msg-info" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${paraFmt(o.fiyat)}</strong>
+      <span><strong>${esc(o.no)}</strong> ${T.teklif_msg} <strong style="font-size:1.15rem">${siparisParaFmt(o, o.fiyat)}</strong>
         ${indirimTutarOf(o) ? `<small>(${indirimEtiketi(o)} ${T.indirim_uygulandi})</small>` : ""}</span>
       <span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
         ${o.seffaf ? `<a class="btn btn-outline btn-sm" href="/bayi/teklif/?id=${o.id}">${T.teklif_dokum}</a>` : ""}
@@ -910,7 +974,7 @@ function bayiSiparislerPage(dealer, lang, msg) {
       </div>`;
     }
     const fiyatHtml = o.fiyat
-      ? `<strong>${paraFmt(o.fiyat)}</strong>` + (o.seffaf ? `<br><a href="/bayi/teklif/?id=${o.id}"><small>${T.teklif_dokum}</small></a>` : "")
+      ? `<strong>${siparisParaFmt(o, o.fiyat)}</strong>` + (o.seffaf ? `<br><a href="/bayi/teklif/?id=${o.id}"><small>${T.teklif_dokum}</small></a>` : "")
       : "—";
     return `<tr>
       <td><strong>${esc(o.no)}</strong><br><small>${new Date(o.tarih).toLocaleDateString(lang==="en"?"en-GB":"tr-TR")}</small></td>
@@ -947,8 +1011,8 @@ function teklifPage(o, dealer, lang, geriUrl) {
     <tr>
       <td><span class="u-kart"><img src="/assets/img/products/${k.slug}.webp" alt="" loading="lazy"><strong>${esc(k.ad)}</strong></span></td>
       <td style="text-align:center">${k.adet}</td>
-      <td style="text-align:right">${k.birim ? paraFmt(k.birim) : "—"}</td>
-      <td style="text-align:right"><strong>${k.birim ? paraFmt(k.birim * k.adet) : "—"}</strong></td>
+      <td style="text-align:right">${k.birim ? siparisParaFmt(o, k.birim) : "—"}</td>
+      <td style="text-align:right"><strong>${k.birim ? siparisParaFmt(o, k.birim * k.adet) : "—"}</strong></td>
     </tr>`).join("");
   const body = `
   <p class="yazdirma-gizle"><a href="${geriUrl}">← ${T.kapat}</a></p>
@@ -961,9 +1025,9 @@ function teklifPage(o, dealer, lang, geriUrl) {
       <tbody>${rows}</tbody>
     </table>
     <div class="fiyat-ozet">
-      <span>${T.ara_toplam}: <strong>${paraFmt(o.araToplam || o.fiyat)}</strong></span>
-      ${indirimTutarOf(o) ? `<span>${T.indirim_lbl} (${indirimEtiketi(o)}): <strong>−${paraFmt(indirimTutarOf(o))}</strong></span>` : ""}
-      <span class="genel">${T.genel_toplam}: ${paraFmt(o.fiyat)}</span>
+      <span>${T.ara_toplam}: <strong>${siparisParaFmt(o, o.araToplam || o.fiyat)}</strong></span>
+      ${indirimTutarOf(o) ? `<span>${T.indirim_lbl} (${indirimEtiketi(o)}): <strong>−${siparisParaFmt(o, indirimTutarOf(o))}</strong></span>` : ""}
+      <span class="genel">${T.genel_toplam}: ${siparisParaFmt(o, o.fiyat)}</span>
       <small>${lang === "en" ? "Prices exclude VAT." : "Fiyatlara KDV dahil değildir."}</small>
     </div>
     <p class="mt-4 yazdirma-gizle"><button class="btn btn-accent" onclick="window.print()">🖨 ${T.pdf_indir}</button></p>
@@ -995,6 +1059,7 @@ function adminNav(active) {
   const items = [
     ["/admin/", "Özet"],
     ["/admin/onaylar/", "Bayilik Onayları"],
+    ["/admin/urun-ekle/", "Yeni Ürün"],
     ["/admin/fiyatlar/", "Fiyat Güncelleme"],
     ["/admin/aciklamalar/", "Açıklama & Metinler"],
     ["/admin/siparisler/", "Siparişler"],
@@ -1121,7 +1186,7 @@ function adminOzetPage() {
       return `<tr><td><strong>${esc(o.no)}</strong><br><small>${fmtT(o.tarih)}</small></td>
         <td>${esc(d ? d.firma : "?")}</td>
         <td>${o.kalemler.map((k) => esc(k.ad) + " × " + k.adet).join("<br>")}${o.not ? `<br><small>Not: ${esc(o.not)}</small>` : ""}</td>
-        <td>${o.fiyat ? "<strong>" + paraFmt(o.fiyat) + "</strong>" : "—"}<br><span class="durum durum-${DURUM_RENK[o.durum] || "beklemede"}">${DURUM_TR[o.durum] || o.durum}</span></td></tr>`;
+        <td>${o.fiyat ? "<strong>" + siparisParaFmt(o, o.fiyat) + "</strong>" : "—"}<br><span class="durum durum-${DURUM_RENK[o.durum] || "beklemede"}">${DURUM_TR[o.durum] || o.durum}</span></td></tr>`;
     }).join("")
   }</tbody></table>` : "<p>Henüz sipariş yok.</p>";
 
@@ -1207,11 +1272,19 @@ function adminOnaylarPage(msg) {
 function adminFiyatlarPage(msg) {
   const acik = store.settings.fiyatGoster;
   const rows = PRODUCTS.map(([slug, name]) => {
-    const fiyat = (store.prodMeta[slug] || {}).fiyat;
+    const meta = store.prodMeta[slug] || {};
+    const kod = paraBirimi(meta.paraBirimi);
+    const secenekler = Object.keys(PARA_BIRIMLERI).map((k) =>
+      `<option value="${k}" ${k === kod ? "selected" : ""}>${k}</option>`).join("");
     return `
     <tr class="aranabilir">
       <td><span class="u-kart"><img src="/assets/img/products/${slug}.webp" alt="" loading="lazy"><strong>${esc(name)}</strong></span></td>
-      <td style="width:200px"><input class="adet" style="width:170px" type="number" step="0.01" min="0" name="fiyat_${slug}" value="${fiyat || ""}" placeholder="₺ bayi fiyatı"></td>
+      <td style="width:260px">
+        <span style="display:flex;gap:6px">
+          <input class="adet" style="width:150px" type="number" step="0.01" min="0" name="fiyat_${slug}" value="${meta.fiyat || ""}" placeholder="bayi fiyatı">
+          <select class="adet" style="width:90px" name="para_${slug}">${secenekler}</select>
+        </span>
+      </td>
     </tr>`;
   }).join("");
   const body = `
@@ -1230,7 +1303,7 @@ function adminFiyatlarPage(msg) {
   </div>
   <form class="kutu" method="post" action="/admin/fiyatlar/">
     <table class="liste">
-      <thead><tr><th>Ürün</th><th>Liste Fiyatı (₺, KDV hariç)</th></tr></thead>
+      <thead><tr><th>Ürün</th><th>Liste Fiyatı (KDV hariç)</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="mt-4"><button class="btn btn-accent">Fiyatları Kaydet</button></p>
@@ -1362,8 +1435,13 @@ function adminFiyatBekleyenPage(msg) {
       ${o.not ? `<p style="margin-bottom:10px"><small>Not: ${esc(o.not)}</small></p>` : ""}
       <form method="post" action="/admin/siparis/fiyat/" class="fiyatlandirma">
         <input type="hidden" name="id" value="${o.id}">
+        <div class="doviz-sec" aria-label="Para birimi seçimi">
+          <label><input type="radio" name="para_birimi" value="TRY" checked><span>₺ TL</span></label>
+          <label><input type="radio" name="para_birimi" value="USD"><span>$ Dolar</span></label>
+          <label><input type="radio" name="para_birimi" value="EUR"><span>€ Euro</span></label>
+        </div>
         <table class="liste fiyat-tablo">
-          <thead><tr><th>Ürün</th><th style="text-align:center">Adet</th><th>Birim Fiyat (₺)</th><th style="text-align:right">Tutar</th></tr></thead>
+          <thead><tr><th>Ürün</th><th style="text-align:center">Adet</th><th>Birim Fiyat (<span class="doviz-simge">₺</span>)</th><th style="text-align:right">Tutar</th></tr></thead>
           <tbody>${satirlar}</tbody>
         </table>
         <div class="fiyat-ozet">
@@ -1375,7 +1453,7 @@ function adminFiyatBekleyenPage(msg) {
             <span class="indirim-alan" style="display:none;align-items:center;gap:6px">
               <select name="indirim_tip" class="adet indirim-tip" style="width:64px;padding:8px 4px">
                 <option value="yuzde">%</option>
-                <option value="tutar">₺</option>
+                <option value="tutar" class="tutar-sec">₺</option>
               </select>
               <input class="birim para indirim-deger" type="text" inputmode="decimal" name="indirim" value="" style="width:110px" placeholder="10" autocomplete="off">
               <span class="indirim-tutar"></span>
@@ -1397,7 +1475,18 @@ function adminFiyatBekleyenPage(msg) {
   }).join("");
 
   const script = `<script>
-    var TL = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' });
+    var PARA = {
+      TRY: { simge: '₺', ad: 'TL' },
+      USD: { simge: '$', ad: 'Dolar' },
+      EUR: { simge: '€', ad: 'Euro' }
+    };
+    function paraBirimi(form) {
+      var secili = form.querySelector('input[name="para_birimi"]:checked');
+      return secili ? secili.value : 'TRY';
+    }
+    function formatter(kod) {
+      return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: kod });
+    }
     function sayi(v) { return parseFloat(String(v).replace(/\\./g, '').replace(',', '.')) || 0; }
     function bicimle(el) {
       var v = el.value.replace(/[^\\d,]/g, '');
@@ -1407,11 +1496,18 @@ function adminFiyatBekleyenPage(msg) {
     }
     document.querySelectorAll('.fiyatlandirma').forEach(function (form) {
       function hesapla() {
+        var kod = paraBirimi(form);
+        var fmt = formatter(kod);
+        var simge = PARA[kod].simge;
+        form.querySelectorAll('.doviz-simge').forEach(function (el) { el.textContent = simge; });
+        form.querySelectorAll('input.birim[name^="birim_"]').forEach(function (inp) { inp.placeholder = simge + ' birim'; });
+        var tutarSec = form.querySelector('.tutar-sec');
+        if (tutarSec) tutarSec.textContent = simge;
         var ara = 0;
         form.querySelectorAll('input.birim[name^="birim_"]').forEach(function (inp) {
           var adet = parseInt(inp.getAttribute('data-adet'), 10);
           var birim = sayi(inp.value);
-          inp.closest('tr').querySelector('.satir-toplam').textContent = birim ? TL.format(birim * adet) : '—';
+          inp.closest('tr').querySelector('.satir-toplam').textContent = birim ? fmt.format(birim * adet) : '—';
           ara += birim * adet;
         });
         var acik = form.querySelector('.indirim-ac').checked;
@@ -1419,9 +1515,9 @@ function adminFiyatBekleyenPage(msg) {
         var tip = form.querySelector('.indirim-tip').value;
         var deger = acik ? sayi(form.querySelector('.indirim-deger').value) : 0;
         var indirimTutar = tip === 'tutar' ? Math.min(deger, ara) : ara * Math.min(deger, 99) / 100;
-        form.querySelector('.indirim-tutar').textContent = indirimTutar ? '(−' + TL.format(indirimTutar) + ')' : '';
-        form.querySelector('.ara-toplam').textContent = TL.format(ara);
-        form.querySelector('.genel-toplam').textContent = TL.format(ara - indirimTutar);
+        form.querySelector('.indirim-tutar').textContent = indirimTutar ? '(−' + fmt.format(indirimTutar) + ')' : '';
+        form.querySelector('.ara-toplam').textContent = fmt.format(ara);
+        form.querySelector('.genel-toplam').textContent = fmt.format(ara - indirimTutar);
       }
       form.querySelectorAll('input.para').forEach(function (inp) {
         inp.addEventListener('input', function () { bicimle(inp); hesapla(); });
@@ -1443,7 +1539,7 @@ function adminOnayPage() {
       <td><strong>${esc(o.no)}</strong><br><small>${trTarih(o.tarih)}</small><br><a href="/admin/teklif/?id=${o.id}"><small>Dökümü Gör</small></a></td>
       <td>${esc(bayiAdi(o))}</td>
       <td>${kalemListe(o)}</td>
-      <td><strong>${paraFmt(o.fiyat)}</strong>${indirimTutarOf(o) ? `<br><small>${indirimEtiketi(o)} indirimli (${paraFmt(o.araToplam)} üzerinden)</small>` : ""}<br><small>${o.seffaf ? "Şeffaf döküm" : "Yalnız toplam"}</small></td>
+      <td><strong>${siparisParaFmt(o, o.fiyat)}</strong>${indirimTutarOf(o) ? `<br><small>${indirimEtiketi(o)} indirimli (${siparisParaFmt(o, o.araToplam)} üzerinden)</small>` : ""}<br><small>${o.seffaf ? "Şeffaf döküm" : "Yalnız toplam"}</small></td>
       <td>
         <div class="onay-cizelge" style="flex-direction:column;gap:6px">
           <span class="${o.bayiOnay ? "ok" : "bekliyor"}">${o.bayiOnay ? "✓ Bayi onayladı" : "• Bayi onayı bekleniyor"}</span>
@@ -1465,7 +1561,7 @@ function adminKargoPage() {
     `<option value="${k}" ${o.durum === k ? "selected" : ""}>${DURUM_TR[k]}</option>`).join("");
   const rows = aktifler.map((o) => `
     <tr>
-      <td><strong>${esc(o.no)}</strong><br><small>${esc(bayiAdi(o))} · ${paraFmt(o.fiyat)}</small></td>
+      <td><strong>${esc(o.no)}</strong><br><small>${esc(bayiAdi(o))} · ${siparisParaFmt(o, o.fiyat)}</small></td>
       <td>${kalemListe(o)}</td>
       <td style="min-width:300px">${kargoStepper(o.durum, "tr")}</td>
       <td>
@@ -1491,7 +1587,7 @@ function adminTeslimPage() {
       <td><strong>${esc(o.no)}</strong><br><small>${trTarih(o.tarih)}</small>${o.fiyat && o.seffaf ? `<br><a href="/admin/teklif/?id=${o.id}"><small>Dökümü Gör</small></a>` : ""}</td>
       <td>${esc(bayiAdi(o))}</td>
       <td>${kalemListe(o)}</td>
-      <td>${o.fiyat ? paraFmt(o.fiyat) : "—"}</td>
+      <td>${o.fiyat ? siparisParaFmt(o, o.fiyat) : "—"}</td>
       <td>${o.kargoTakip ? `<span class="kod">${esc(o.kargoTakip)}</span>` : ""} ${o.tesekkur ? "💬" : ""}</td>
     </tr>`).join("");
   return siparisSayfa("/admin/siparisler/teslim/", "Teslim Edilen Siparişler",
@@ -1553,6 +1649,289 @@ function icerikDuzenlePage(key, msg) {
     <p><small>Kaydettiğiniz anda web sitesinde yayına girer.</small></p>
   </form>`;
   return pageShell("İçerik Düzenle", body, { nav: adminNav("/admin/aciklamalar/") });
+}
+
+/* ---------------- admin'in eklediği ürünler ---------------- */
+
+const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
+const TPL_DIR = path.join(ROOT, "server", "tpl");
+const ARROW = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>';
+// Yeni ürün sayfası için dil bilgileri (build.py'deki L sözlüğünün ihtiyaç duyulan kısmı)
+const CPL = {
+  tr: { site: "Maxx Global Medikal", quote_path: "/teklif-al/", cta: "Teklif Al", detail_cta: "" },
+  en: { site: "Maxx Global Medical", quote_path: "/en/get-quote/", cta: "Get a Quote",
+        detail_cta: "Contact us for detailed information and a price quote for" },
+};
+const _tplCache = {};
+function productTpl(lang) {
+  if (!_tplCache[lang]) _tplCache[lang] = fs.readFileSync(path.join(TPL_DIR, "product-" + lang + ".html"), "utf8");
+  return _tplCache[lang];
+}
+
+const TR_MAP = { "ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u", "İ": "i" };
+function slugify(s) {
+  return String(s).trim().toLowerCase()
+    .replace(/[çğıöşüİ]/g, (c) => TR_MAP[c] || c)
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+}
+const staticSlugs = new Set(PRODUCTS.map(([s]) => s));
+function uniqueSlug(base) {
+  let s = base || "urun", n = 2;
+  const taken = (x) => staticSlugs.has(x) || staticSlugs.has(x.replace(/-en$/, "")) ||
+    store.customProducts.some((c) => c.slug === x) || x === "urunler" || x === "bayi" || x === "admin" || x === "assets" || x === "en";
+  while (taken(s)) { s = base + "-" + n++; }
+  return s;
+}
+const customBySlug = (slug) => store.customProducts.find((c) => c.slug === slug);
+function prodImg(slug) {
+  return customBySlug(slug) ? "/urun-gorsel/" + slug + ".webp" : "/assets/img/products/" + slug + ".webp";
+}
+// Bayi portalı + admin fiyatlandırma için: statik + özel ürünler birlikte
+function allDealerProducts() {
+  return PRODUCTS.concat(store.customProducts.map((c) => [c.slug, c.name_tr || c.name_en]));
+}
+
+// "Başlık | Değer" satırlarını spec tablosu HTML'ine
+function specHtml(text, lang) {
+  const rows = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const i = l.indexOf("|");
+    return `          <tr><th>${esc((i === -1 ? l : l.slice(0, i)).trim())}</th><td>${esc(i === -1 ? "" : l.slice(i + 1).trim())}</td></tr>`;
+  });
+  if (!rows.length) return "";
+  const baslik = lang === "tr" ? "Teknik Özellikler" : "Technical Specifications";
+  return `        <h3 class="mt-4">${baslik}</h3>\n        <table class="spec-tablo"><tbody>\n${rows.join("\n")}\n        </tbody></table>`;
+}
+// SSS metnini (soru\ncevap, boş satırla ayrılmış) parse
+function faqParse(text) {
+  return String(text || "").replace(/\r/g, "").split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean).map((b) => {
+    const lines = b.split("\n").map((l) => l.trim()).filter(Boolean);
+    return { q: lines[0] || "", a: lines.slice(1).join(" ") };
+  }).filter((x) => x.q && x.a);
+}
+function customProductCard(cp, lang) {
+  const name = lang === "en" ? (cp.name_en || cp.name_tr) : (cp.name_tr || cp.name_en);
+  const tag = lang === "en" ? (cp.tag_en || "Arthroscopy Products") : (cp.tag_tr || "Artroskopi Ürünleri");
+  const href = "/" + cp.slug + (lang === "en" ? "-en" : "") + "/";
+  const incele = lang === "en" ? "Explore" : "İncele";
+  return `        <article class="product-card">
+          <a class="media" href="${href}" tabindex="-1" aria-hidden="true">
+            <img src="/urun-gorsel/${cp.slug}.webp" alt="${esc(name)}" loading="lazy">
+          </a>
+          <div class="body">
+            <span class="tag">${esc(tag)}</span>
+            <h3><a href="${href}">${esc(name)}</a></h3>
+            <a class="more" href="${href}">${incele} →</a>
+          </div>
+        </article>`;
+}
+
+// Yeni ürün için tam sayfa HTML üret (build.py şablonunu doldurarak)
+function renderCustomProduct(cp, lang) {
+  const en = lang === "en";
+  const name = en ? (cp.name_en || cp.name_tr) : (cp.name_tr || cp.name_en);
+  const tag = en ? (cp.tag_en || "Arthroscopy Products") : (cp.tag_tr || "Artroskopi Ürünleri");
+  const desc = en ? (cp.desc_en || cp.desc_tr) : (cp.desc_tr || cp.desc_en);
+  const specText = en ? cp.spec_en : cp.spec_tr;
+  const faqText = en ? cp.faq_en : cp.faq_tr;
+  const urlTr = BASE + "/" + cp.slug + "/";
+  const urlEn = BASE + "/" + cp.slug + "-en/";
+  const canonical = en ? urlEn : urlTr;
+  const imgUrl = BASE + "/urun-gorsel/" + cp.slug + ".webp";
+  const listPath = en ? "/en/products/" : "/urunler/";
+  const listName = en ? "Products" : "Ürünler";
+  const T = CPL[lang];
+  const metaDesc = (name + ": " + String(desc || "").replace(/\s+/g, " ")).slice(0, 155);
+
+  const paras = String(desc || "").replace(/\r/g, "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+    .map((p) => "        <p>" + esc(p) + "</p>").join("\n");
+  const specBlock = specHtml(specText, lang);
+  const faqs = faqParse(faqText);
+  const faqH2 = en ? "Frequently Asked Questions" : "Sık Sorulan Sorular";
+  const faqHtml = faqs.map((x) => `        <details>
+          <summary>${esc(x.q)}</summary>
+          <p>${esc(x.a)}</p>
+        </details>`).join("\n");
+  const ctaText = en
+    ? `${T.detail_cta || "Contact us for a quote for"} <strong>${esc(name)}</strong>.`
+    : `<strong>${esc(name)}</strong> hakkında detaylı bilgi ve fiyat teklifi almak için bize ulaşın.`;
+  // İlgili: ilk 3 statik ürün
+  const rel = PRODUCTS.slice(0, 3).map(([s, n]) => {
+    const rhref = "/" + s + (en ? "-en" : "") + "/";
+    return `        <article class="product-card">
+          <a class="media" href="${rhref}" tabindex="-1" aria-hidden="true">
+            <img src="/assets/img/products/${s}.webp" alt="${esc(n)}" loading="lazy">
+          </a>
+          <div class="body"><span class="tag">${esc(tag)}</span>
+            <h3><a href="${rhref}">${esc(n)}</a></h3>
+            <a class="more" href="${rhref}">${en ? "Explore" : "İncele"} →</a></div>
+        </article>`;
+  }).join("\n");
+
+  const main = `  <section class="page-hero">
+    <div class="container">
+      <h1>${esc(name)}</h1>
+      <nav aria-label="${en ? "Breadcrumb" : "Sayfa konumu"}"><ol class="breadcrumb">
+      <li><a href="${en ? "/en/" : "/"}">${en ? "Home" : "Ana Sayfa"}</a></li>
+      <li><a href="${listPath}">${listName}</a></li>
+      <li class="current" aria-current="page">${esc(name)}</li>
+      </ol></nav>
+    </div>
+  </section>
+  <section class="section">
+    <div class="container product-detail">
+      <div class="media image-anime">
+        <img src="/urun-gorsel/${cp.slug}.webp" alt="${esc(name)}" fetchpriority="high">
+      </div>
+      <div class="content">
+        <span class="eyebrow">${esc(tag)}</span>
+        <h2>${esc(name)}</h2>
+${paras}
+${specBlock}
+        <div class="product-cta">
+          <p>${ctaText}</p>
+          <a class="btn btn-accent" href="${T.quote_path}">${T.cta} ${ARROW}</a>
+        </div>
+      </div>
+    </div>
+  </section>` +
+  (faqHtml ? `
+  <section class="section">
+    <div class="container" style="max-width:860px">
+      <h2 style="margin-bottom:20px">${faqH2}</h2>
+      <div class="sss-bolum">
+${faqHtml}
+      </div>
+    </div>
+  </section>` : "") + `
+  <section class="section section-soft">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">${en ? "Other Products" : "Diğer Ürünler"}</span>
+        <h2>${en ? "Products You May Be Interested In" : "İlginizi Çekebilecek Ürünler"}</h2>
+      </div>
+      <div class="grid grid-3">
+${rel}
+      </div>
+    </div>
+  </section>`;
+
+  // JSON-LD
+  const ld = [];
+  ld.push({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": en ? "Home" : "Ana Sayfa", "item": en ? BASE + "/en/" : BASE + "/" },
+    { "@type": "ListItem", "position": 2, "name": listName, "item": BASE + listPath },
+    { "@type": "ListItem", "position": 3, "name": name, "item": canonical },
+  ]});
+  const prod = { "@context": "https://schema.org", "@type": "Product", "name": name, "sku": cp.slug,
+    "image": imgUrl, "description": metaDesc, "category": tag,
+    "brand": { "@type": "Brand", "name": "Maxx Global" },
+    "manufacturer": { "@type": "Organization", "name": "Maxx Global Medikal", "url": BASE + "/", "logo": BASE + "/assets/img/logo-maxx.png" },
+    "countryOfOrigin": "TR", "url": canonical };
+  const specRows = String(specText || "").split("\n").map((l) => l.trim()).filter((l) => l.includes("|"))
+    .map((l) => ({ "@type": "PropertyValue", "name": l.slice(0, l.indexOf("|")).trim(), "value": l.slice(l.indexOf("|") + 1).trim() }));
+  if (specRows.length) prod.additionalProperty = specRows;
+  ld.push(prod);
+  if (faqs.length) ld.push({ "@context": "https://schema.org", "@type": "FAQPage",
+    "mainEntity": faqs.map((x) => ({ "@type": "Question", "name": x.q, "acceptedAnswer": { "@type": "Answer", "text": x.a } })) });
+  const jsonld = ld.map((o) => '<script type="application/ld+json">' + JSON.stringify(o) + "<" + "/script>").join("\n  ");
+
+  const title = (name + " | " + (en ? "Arthroscopy" : "Artroskopi") + " | " + T.site).slice(0, 68);
+  return productTpl(lang)
+    .replace(/\{\{TITLE\}\}/g, esc(title))
+    .replace(/\{\{DESC\}\}/g, esc(metaDesc))
+    .replace(/\{\{OG_IMAGE\}\}/g, imgUrl)
+    .replace(/\{\{URL_TR\}\}/g, urlTr)
+    .replace(/\{\{URL_EN\}\}/g, urlEn)
+    .replace("{{JSONLD}}", jsonld)
+    .replace("{{MAIN}}", main);
+}
+
+function adminUrunEklePage(msg, edit) {
+  const cp = edit ? customBySlug(edit) : null;
+  const val = (x) => esc(x || "");
+  const mevcut = store.customProducts.slice().reverse().map((c) => `
+    <tr>
+      <td><span class="u-kart"><img src="/urun-gorsel/${c.slug}.webp" alt="" loading="lazy"><strong>${esc(c.name_tr || c.name_en)}</strong></span></td>
+      <td><a href="/${c.slug}/" target="_blank">/${c.slug}/</a></td>
+      <td style="white-space:nowrap">
+        <a class="btn btn-outline btn-sm" href="/admin/urun-ekle/?edit=${c.slug}">Düzenle</a>
+        <form method="post" action="/admin/urun-sil/" style="display:inline" onsubmit="return confirm('Bu ürün silinsin mi?')">
+          <input type="hidden" name="slug" value="${c.slug}"><button class="btn btn-outline btn-sm">Sil</button></form>
+      </td>
+    </tr>`).join("");
+
+  const body = `
+  <span class="eyebrow">Yönetim Paneli</span>
+  <h1 class="portal-title" style="font-size:2rem">${cp ? "Ürünü Düzenle" : "Yeni Ürün Ekle"}</h1>
+  <p class="portal-sub">Fotoğraf, açıklama, teknik tablo ve SSS girin — kaydedince ürün web sitesinde (TR ve EN) yayınlanır.</p>
+  ${msg || ""}
+  <form class="kutu" method="post" action="/admin/urun-ekle/" enctype="application/x-www-form-urlencoded" onsubmit="return haz()">
+    ${cp ? `<input type="hidden" name="duzenle" value="${cp.slug}">` : ""}
+    <h2>Fotoğraf</h2>
+    <p style="margin-bottom:14px"><small>Yatay (4:3) ve net bir görsel önerilir. Tarayıcı otomatik küçültüp optimize eder.</small></p>
+    <input type="file" accept="image/*" id="foto" onchange="fotoSec(this)" style="margin-bottom:10px">
+    <div><img id="onizleme" src="${cp ? "/urun-gorsel/" + cp.slug + ".webp" : ""}" alt="" style="max-width:280px;border-radius:12px;${cp ? "" : "display:none"};border:1px solid var(--line)"></div>
+    <input type="hidden" name="foto_data" id="foto_data">
+
+    <h2 class="mt-4">Ürün Adı</h2>
+    <div class="form-grid">
+      <p class="form-field"><label>Türkçe *</label><input name="name_tr" required maxlength="120" value="${val(cp && cp.name_tr)}"></p>
+      <p class="form-field"><label>İngilizce *</label><input name="name_en" required maxlength="120" value="${val(cp && cp.name_en)}"></p>
+      <p class="form-field"><label>Kategori Etiketi (TR)</label><input name="tag_tr" maxlength="60" placeholder="Artroskopi Ürünleri" value="${val(cp && cp.tag_tr)}"></p>
+      <p class="form-field"><label>Kategori Etiketi (EN)</label><input name="tag_en" maxlength="60" placeholder="Arthroscopy Products" value="${val(cp && cp.tag_en)}"></p>
+    </div>
+
+    <h2 class="mt-4">Açıklama <small style="font-weight:400">(paragrafları boş satırla ayırın)</small></h2>
+    <div class="form-grid">
+      <p class="form-field"><label>Türkçe *</label><textarea name="desc_tr" rows="6" required style="border:1.5px solid var(--line);border-radius:10px;padding:10px">${val(cp && cp.desc_tr)}</textarea></p>
+      <p class="form-field"><label>İngilizce *</label><textarea name="desc_en" rows="6" required style="border:1.5px solid var(--line);border-radius:10px;padding:10px">${val(cp && cp.desc_en)}</textarea></p>
+    </div>
+
+    <h2 class="mt-4">Teknik Tablo <small style="font-weight:400">(her satır: <span class="kod">Başlık | Değer</span>)</small></h2>
+    <div class="form-grid">
+      <p class="form-field"><label>Türkçe</label><textarea name="spec_tr" rows="5" placeholder="Malzeme | Titanyum&#10;Çap | 3.5 mm" style="border:1.5px solid var(--line);border-radius:10px;padding:10px">${val(cp && cp.spec_tr)}</textarea></p>
+      <p class="form-field"><label>İngilizce</label><textarea name="spec_en" rows="5" placeholder="Material | Titanium&#10;Diameter | 3.5 mm" style="border:1.5px solid var(--line);border-radius:10px;padding:10px">${val(cp && cp.spec_en)}</textarea></p>
+    </div>
+
+    <h2 class="mt-4">SSS <small style="font-weight:400">(ilk satır soru, altı cevap; çiftleri boş satırla ayırın)</small></h2>
+    <div class="form-grid">
+      <p class="form-field"><label>Türkçe</label><textarea name="faq_tr" rows="6" style="border:1.5px solid var(--line);border-radius:10px;padding:10px">${val(cp && cp.faq_tr)}</textarea></p>
+      <p class="form-field"><label>İngilizce</label><textarea name="faq_en" rows="6" style="border:1.5px solid var(--line);border-radius:10px;padding:10px">${val(cp && cp.faq_en)}</textarea></p>
+    </div>
+
+    <p class="mt-4"><button class="btn btn-accent">${cp ? "Değişiklikleri Kaydet" : "Ürünü Ekle ve Yayınla"}</button>
+    ${cp ? ' <a class="btn btn-outline" href="/admin/urun-ekle/">Vazgeç</a>' : ""}</p>
+  </form>
+
+  <div class="kutu">
+    <h2>Eklenen Ürünler (${store.customProducts.length})</h2>
+    ${store.customProducts.length ? `<table class="liste"><thead><tr><th>Ürün</th><th>Adres</th><th></th></tr></thead><tbody>${mevcut}</tbody></table>` : "<p>Henüz yeni ürün eklenmedi. Yukarıdaki formla ekleyebilirsiniz.</p>"}
+  </div>`;
+
+  const script = `<script>
+    function fotoSec(input) {
+      var f = input.files[0]; if (!f) return;
+      var img = new Image();
+      img.onload = function () {
+        var maxW = 1100, sc = Math.min(1, maxW / img.width);
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        var data = c.toDataURL('image/webp', 0.82);
+        if (data.length < 1000) data = c.toDataURL('image/jpeg', 0.85);
+        document.getElementById('foto_data').value = data;
+        var o = document.getElementById('onizleme'); o.src = data; o.style.display = '';
+      };
+      img.src = URL.createObjectURL(f);
+    }
+    function haz() {
+      if (!document.getElementById('foto_data').value && !${cp ? "true" : "false"}) {
+        alert('Lütfen bir ürün fotoğrafı seçin.'); return false;
+      }
+      return true;
+    }
+  </script>`;
+  return adminLayout("/admin/urun-ekle/", cp ? "Ürünü Düzenle" : "Yeni Ürün", body, { script });
 }
 
 /* ---------------- statik dosya sunumu ---------------- */
@@ -1706,27 +2085,55 @@ const server = http.createServer(async (req, res) => {
       return redirect("/bayi/");
     }
 
-    /* ---- Aktivasyon ---- */
+    /* ---- Aktivasyon (ilk parola belirleme ve parola sıfırlama ortak akışı) ---- */
     if (p === "/bayi/aktivasyon/") {
       const lang = bayiDil(req, url);
       const token = req.method === "GET" ? url.searchParams.get("token") : null;
       if (req.method === "GET") {
         const d = store.dealers.find((x) => x.token && x.token === token && x.durum === "onayli");
         if (!d) return send(pageShell("Aktivasyon", '<p class="msg msg-err">Aktivasyon bağlantısı geçersiz ya da kullanılmış.</p>'), 400);
-        return send(aktivasyonPage(d.lang || lang, token));
+        return send(aktivasyonPage(d.lang || lang, token, "", !!d.salt));
       }
       const f = parseForm(await readBody(req));
       const d = store.dealers.find((x) => x.token && x.token === f.token && x.durum === "onayli");
       if (!d) return send(pageShell("Aktivasyon", '<p class="msg msg-err">Aktivasyon bağlantısı geçersiz.</p>'), 400);
+      const isReset = !!d.salt;
       if ((f.p1 || "").length < 8 || f.p1 !== f.p2)
         return send(aktivasyonPage(d.lang || "tr", f.token, d.lang === "en"
           ? '<p class="msg msg-err">Passwords must match and be at least 8 characters.</p>'
-          : '<p class="msg msg-err">Parolalar eşleşmeli ve en az 8 karakter olmalı.</p>'));
+          : '<p class="msg msg-err">Parolalar eşleşmeli ve en az 8 karakter olmalı.</p>', isReset));
       Object.assign(d, hashPassword(f.p1));
       delete d.token;
       saveStore();
       setCookie(res, "bayi", makeSession({ t: "bayi", id: d.id }, 7), 7 * 86400);
       return redirect("/bayi/");
+    }
+
+    /* ---- Bayi parola sıfırlama (şifremi unuttum) ---- */
+    if (p === "/bayi/sifremi-unuttum/") {
+      const lang = bayiDil(req, url);
+      if (req.method === "GET") return send(sifremiUnuttumPage(lang));
+      const f = parseForm(await readBody(req));
+      const flang = f.lang === "en" ? "en" : "tr";
+      const eposta = clamp(f.eposta, 180).toLowerCase();
+      const key = "f:" + ip;
+      if (rateLimited(key)) return send(sifremiUnuttumPage(flang, flang === "en"
+        ? '<p class="msg msg-err">Too many attempts. Try again in 15 minutes.</p>'
+        : '<p class="msg msg-err">Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin.</p>'), 429);
+      recordFail(key); // e-posta gönderim spam'ini de bu sayaçla sınırla
+      const d = store.dealers.find((x) => x.eposta === eposta && x.durum === "onayli");
+      if (d) {
+        d.token = crypto.randomBytes(24).toString("base64url");
+        saveStore();
+        const base = (IS_PROD ? "https://" : "http://") + (req.headers.host || "localhost");
+        const isReset = !!d.salt;
+        sendMail(d.eposta, isReset ? "Maxx Global parola sıfırlama" : "Maxx Global bayilik hesabınızı etkinleştirin",
+          `Sayın ${d.yetkili},\n\n` +
+          (isReset ? "Yeni parola belirlemek için aşağıdaki bağlantıyı kullanın:\n" : "Hesabınızı etkinleştirmek için aşağıdaki bağlantıyı kullanın:\n") +
+          `${base}/bayi/aktivasyon/?token=${d.token}\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.\n\nMaxx Global Medikal`);
+      }
+      // Bayi kayıtlı olsun ya da olmasın aynı mesaj gösterilir (e-posta numaralandırma saldırısını önlemek için)
+      return send(sifremiUnuttumPage(flang, `<p class="msg msg-ok">${BL[flang].sifirlama_gonderildi_msg}</p>`));
     }
 
     /* ---- Bayi portalı (ürünler + sepet) ---- */
@@ -1757,7 +2164,7 @@ const server = http.createServer(async (req, res) => {
       let sepet = {};
       try { sepet = JSON.parse(f.sepet || "{}"); } catch {}
       const kalemler = [];
-      for (const [slug, name] of PRODUCTS) {
+      for (const [slug, name] of allDealerProducts()) {
         const n = parseInt(sepet[slug] || 0, 10);
         if (n > 0) kalemler.push({ slug, ad: name, adet: Math.min(n, 99999) });
       }
@@ -1789,7 +2196,7 @@ const server = http.createServer(async (req, res) => {
         if (o.adminOnay) { o.durum = "hazirlaniyor"; o.kargoTarihi = Date.now(); }
         saveStore();
         sendMail(ORDER_EMAIL, `Bayi siparişi onayladı: ${o.no} — ${d.firma}`,
-          `${d.firma}, ${o.no} numaralı sipariş için ${paraFmt(o.fiyat)} fiyat teklifini ONAYLADI.` +
+          `${d.firma}, ${o.no} numaralı sipariş için ${siparisParaFmt(o, o.fiyat)} fiyat teklifini ONAYLADI.` +
           (o.adminOnay ? "\nHer iki onay tamam — sipariş Hazırlanıyor durumuna geçti." : "\nSizin onayınız bekleniyor (yönetim paneli → Siparişler)."));
       }
       return redirect("/bayi/siparisler/");
@@ -1861,6 +2268,59 @@ const server = http.createServer(async (req, res) => {
       if (!adminSes) return redirect("/admin/");
       return send(adminAciklamalarPage());
     }
+
+    /* ---- Admin: yeni ürün ekle/düzenle ---- */
+    if (p === "/admin/urun-ekle/") {
+      if (!adminSes) return redirect("/admin/");
+      if (req.method === "GET") {
+        const e = url.searchParams.get("edit");
+        return send(adminUrunEklePage(url.searchParams.get("ok") ? '<p class="msg msg-ok">Ürün kaydedildi ve web sitesinde yayınlandı.</p>' : "", e && customBySlug(e) ? e : null));
+      }
+      const f = parseForm(await readBody(req, 9_000_000)); // fotoğraf base64 için büyük gövde
+      const duzenle = f.duzenle ? customBySlug(f.duzenle) : null;
+      const name_tr = clamp(f.name_tr, 120), name_en = clamp(f.name_en, 120);
+      if (!name_tr || !name_en || !clamp(f.desc_tr, 1) || !clamp(f.desc_en, 1))
+        return send(adminUrunEklePage('<p class="msg msg-err">Ürün adı (TR+EN) ve açıklama (TR+EN) zorunludur.</p>', duzenle && duzenle.slug), 400);
+
+      // Fotoğrafı kaydet (base64 data URL → webp dosyası)
+      let slug = duzenle ? duzenle.slug : uniqueSlug(slugify(name_tr));
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      const dataUrl = f.foto_data || "";
+      const mm = dataUrl.match(/^data:image\/\w+;base64,([\s\S]+)$/);
+      if (mm) {
+        const buf = Buffer.from(mm[1], "base64");
+        if (buf.length > 6_000_000) return send(adminUrunEklePage('<p class="msg msg-err">Fotoğraf çok büyük.</p>', duzenle && duzenle.slug), 400);
+        fs.writeFileSync(path.join(UPLOAD_DIR, slug + ".webp"), buf);
+      } else if (!duzenle) {
+        return send(adminUrunEklePage('<p class="msg msg-err">Lütfen bir ürün fotoğrafı seçin.</p>'), 400);
+      }
+
+      const kayit = {
+        slug, name_tr, name_en,
+        tag_tr: clamp(f.tag_tr, 60) || "Artroskopi Ürünleri",
+        tag_en: clamp(f.tag_en, 60) || "Arthroscopy Products",
+        desc_tr: clamp(f.desc_tr, 5000), desc_en: clamp(f.desc_en, 5000),
+        spec_tr: clamp(f.spec_tr, 3000), spec_en: clamp(f.spec_en, 3000),
+        faq_tr: clamp(f.faq_tr, 5000), faq_en: clamp(f.faq_en, 5000),
+        created: duzenle ? duzenle.created : Date.now(),
+      };
+      if (duzenle) Object.assign(duzenle, kayit);
+      else store.customProducts.push(kayit);
+      saveStore();
+      return redirect("/admin/urun-ekle/?ok=1");
+    }
+
+    if (p === "/admin/urun-sil/" && req.method === "POST") {
+      if (!adminSes) return redirect("/admin/");
+      const f = parseForm(await readBody(req));
+      const i = store.customProducts.findIndex((c) => c.slug === f.slug);
+      if (i !== -1) {
+        try { fs.unlinkSync(path.join(UPLOAD_DIR, store.customProducts[i].slug + ".webp")); } catch {}
+        store.customProducts.splice(i, 1);
+        saveStore();
+      }
+      return redirect("/admin/urun-ekle/");
+    }
     if (req.method === "GET" && ["/admin/siparisler/", "/admin/siparisler/onay/", "/admin/siparisler/kargo/",
         "/admin/siparisler/teslim/", "/admin/tesekkurler/", "/admin/talepler/"].includes(p)) {
       if (!adminSes) return redirect("/admin/");
@@ -1894,6 +2354,7 @@ const server = http.createServer(async (req, res) => {
       const o = store.orders.find((x) => x.id === f.id);
       if (o && o.durum === "fiyat_bekliyor") {
         const paraOku = (v) => parseFloat(String(v || "").replace(/\./g, "").replace(",", "."));
+        const secilenPara = paraBirimi(f.para_birimi);
         let ara = 0, eksik = false;
         for (const k of o.kalemler) {
           const b = paraOku(f["birim_" + k.slug]);
@@ -1913,6 +2374,7 @@ const server = http.createServer(async (req, res) => {
           o.indirimTutar = Math.round(indirimTutar * 100) / 100;
           o.indirim = tip === "yuzde" && deger > 0 ? deger : 0;
           o.fiyat = Math.round((ara - indirimTutar) * 100) / 100;
+          o.paraBirimi = secilenPara;
           o.seffaf = f.seffaf === "1";
           o.durum = "fiyat_verildi";
           o.fiyatTarihi = Date.now();
@@ -1921,8 +2383,8 @@ const server = http.createServer(async (req, res) => {
           if (d) sendMail(d.eposta,
             d.lang === "en" ? `Price quote for your order ${o.no}` : `${o.no} numaralı siparişiniz için fiyat teklifi`,
             d.lang === "en"
-              ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${paraFmt(o.fiyat)}${indirimTutarOf(o) ? ` (discount applied: ${indirimEtiketi(o)})` : ""}.\nLog in to the dealer portal to review and approve.`
-              : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${paraFmt(o.fiyat)}${indirimTutarOf(o) ? ` (${indirimEtiketi(o)} indirim uygulandı)` : ""}.\nİncelemek ve onaylamak için bayi portalına giriş yapın.`);
+              ? `Dear ${d.yetkili},\n\nOur quote for order ${o.no}: ${siparisParaFmt(o, o.fiyat)}${indirimTutarOf(o) ? ` (discount applied: ${indirimEtiketi(o)})` : ""}.\nLog in to the dealer portal to review and approve.`
+              : `Sayın ${d.yetkili},\n\n${o.no} numaralı siparişiniz için fiyat teklifimiz: ${siparisParaFmt(o, o.fiyat)}${indirimTutarOf(o) ? ` (${indirimEtiketi(o)} indirim uygulandı)` : ""}.\nİncelemek ve onaylamak için bayi portalına giriş yapın.`);
         }
       }
       return redirect("/admin/siparisler/");
@@ -2024,7 +2486,8 @@ const server = http.createServer(async (req, res) => {
       const f = parseForm(await readBody(req));
       for (const [slug] of PRODUCTS) {
         const v = parseFloat(String(f["fiyat_" + slug] || "").replace(",", "."));
-        if (isFinite(v) && v > 0) store.prodMeta[slug] = { ...(store.prodMeta[slug] || {}), fiyat: Math.round(v * 100) / 100 };
+        const kod = paraBirimi(f["para_" + slug]);
+        if (isFinite(v) && v > 0) store.prodMeta[slug] = { ...(store.prodMeta[slug] || {}), fiyat: Math.round(v * 100) / 100, paraBirimi: kod };
         else if (store.prodMeta[slug]) delete store.prodMeta[slug].fiyat;
       }
       saveStore();
@@ -2048,6 +2511,40 @@ const server = http.createServer(async (req, res) => {
           `Ad: ${clamp(f.ad_soyad, 120)}\nFirma: ${clamp(f.firma, 120)}\nE-posta: ${clamp(f.eposta, 180)}\nTelefon: ${clamp(f.telefon, 40)}\nÜrün: ${clamp(f.urun, 120)}\n\n${clamp(f.mesaj, 3000)}`);
       }
       return redirect(thanks);
+    }
+
+    /* ---- Yeni ürün görseli (kalıcı diskten) ---- */
+    if (p.startsWith("/urun-gorsel/")) {
+      const fn = path.basename(url.pathname);
+      if (!/^[a-z0-9-]+\.webp$/.test(fn)) { res.writeHead(404); return res.end(); }
+      const file = path.join(UPLOAD_DIR, fn);
+      if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { "Content-Type": "image/webp", "Cache-Control": "public, max-age=86400" });
+      return res.end(fs.readFileSync(file));
+    }
+
+    /* ---- Yeni ürünlerin detay sayfası ---- */
+    {
+      const m = url.pathname.replace(/\/+$/, "").match(/^\/([a-z0-9-]+?)(-en)?$/);
+      if (m) {
+        const cp = customBySlug(m[1]);
+        if (cp) {
+          const html = renderCustomProduct(cp, m[2] ? "en" : "tr");
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
+          return res.end(html);
+        }
+      }
+    }
+
+    /* ---- Dinamik sitemap: yeni ürünleri de ekle ---- */
+    if (url.pathname === "/sitemap.xml" && store.customProducts.length) {
+      let xml = fs.readFileSync(path.join(ROOT, "sitemap.xml"), "utf8");
+      const extra = store.customProducts.map((c) =>
+        `  <url><loc>${BASE}/${c.slug}/</loc>\n    <xhtml:link rel="alternate" hreflang="tr" href="${BASE}/${c.slug}/"/>\n    <xhtml:link rel="alternate" hreflang="en" href="${BASE}/${c.slug}-en/"/>\n    <priority>0.7</priority></url>\n` +
+        `  <url><loc>${BASE}/${c.slug}-en/</loc>\n    <xhtml:link rel="alternate" hreflang="tr" href="${BASE}/${c.slug}/"/>\n    <xhtml:link rel="alternate" hreflang="en" href="${BASE}/${c.slug}-en/"/>\n    <priority>0.7</priority></url>`).join("\n");
+      xml = xml.replace("</urlset>", extra + "\n</urlset>");
+      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-cache" });
+      return res.end(xml);
     }
 
     /* ---- Statik site ---- */
