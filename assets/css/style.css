@@ -133,7 +133,7 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
 .nav a, .nav .nav-toggle-sub {
   display: flex; align-items: center; gap: 5px;
   padding: 10px 14px; color: var(--white); font-weight: 600; font-size: .95rem;
-  border-radius: 8px; width: 100%; text-align: left;
+  border-radius: 8px; width: 100%; text-align: left; white-space: nowrap;
 }
 .nav a:hover, .nav .nav-toggle-sub:hover, .nav a[aria-current="page"] { color: var(--accent); }
 .nav .caret { width: 9px; height: 9px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translateY(-2px); transition: transform .2s; flex: none; }
@@ -152,8 +152,16 @@ main > .section { content-visibility: auto; contain-intrinsic-size: auto 700px; 
 .dropdown a:hover { background: var(--soft); color: var(--accent); }
 
 .header-right { display: flex; align-items: center; gap: 12px; flex: none; }
-.header-right .lang-switch { margin-right: 8px; }
+.header-right .lang-switch { margin-left: 8px; }
 .header-cta { flex: none; padding: 11px 22px; font-size: .92rem; }
+/* Blog menüye eklenince dar masaüstü genişliklerinde nav sıkışıyordu */
+@media (min-width: 1081px) and (max-width: 1400px) {
+  .site-header .container { gap: 14px; }
+  .nav a, .nav .nav-toggle-sub { padding: 10px 9px; font-size: .9rem; }
+  .header-right { gap: 8px; }
+  .header-right .lang-switch { margin-left: 4px; gap: 8px; }
+  .header-cta { padding: 11px 16px; font-size: .88rem; }
+}
 .lang-switch { display: flex; gap: 12px; font-weight: 700; font-size: .92rem; }
 .lang-switch a { color: rgba(255,255,255,.65); }
 .lang-switch a.active, .lang-switch a:hover { color: var(--white); }
