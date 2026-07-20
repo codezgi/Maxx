@@ -29,6 +29,12 @@
 - [Anchor With Needles](https://www.maxx-global.net/anchor-with-needles/): İğneli sütür ankoru
 - [AC Double Implant Oval](https://www.maxx-global.net/ac-double-implant-oval/): AC eklem (akromiyoklaviküler) çift implant sistemi
 
+## Blog (Teknik Bilgi İçerikleri)
+- [Blog](https://www.maxx-global.net/blog/): Sütür ankorları, implant malzemeleri ve medikal cihaz üretimi üzerine teknik yazılar
+- [Sütür Ankoru Nedir? Çeşitleri ve Kullanım Alanları](https://www.maxx-global.net/blog/sutur-ankoru-nedir/): Sütür ankoru tanımı; titanyum, PEEK, all-suture ve knotless ankor tipleri; çap seçimi ve kullanım alanları
+- [PEEK ve Titanyum Sütür Ankoru: Farkları ve Seçim](https://www.maxx-global.net/blog/peek-titanyum-sutur-ankoru/): Mukavemet, radyolüsenlik/görüntüleme ve biyouyumluluk karşılaştırması; hibrit PEEK+titanyum ürünler
+- [Türkiye'de Medikal Cihaz Üretimi ve ISO 13485](https://www.maxx-global.net/blog/turkiyede-medikal-cihaz-uretimi/): ISO 13485 kalite yönetim sistemi, CNC kayar torna üretim süreci, OEM / özel etiket (private label) üretim
+
 ## Bayilik
 - [Bayilik Başvurusu](https://www.maxx-global.net/bayilik-al/)
 - [Bayi Girişi](https://www.maxx-global.net/bayi/giris/)
@@ -38,6 +44,10 @@
 - [English Home](https://www.maxx-global.net/en/): Maxx Global Medical — ISO 13485 certified arthroscopy and orthopedic implant manufacturer in Türkiye
 - [Products (EN)](https://www.maxx-global.net/en/products/)
 - [About Us (EN)](https://www.maxx-global.net/en/about-us/)
+- [Blog (EN)](https://www.maxx-global.net/en/blog/): Technical articles on suture anchors, implant materials and medical device manufacturing
+- [What Is a Suture Anchor? (EN)](https://www.maxx-global.net/en/blog/what-is-a-suture-anchor/)
+- [PEEK vs Titanium Suture Anchors (EN)](https://www.maxx-global.net/en/blog/peek-vs-titanium-suture-anchors/)
+- [Medical Device Manufacturing in Türkiye and ISO 13485 (EN)](https://www.maxx-global.net/en/blog/medical-device-manufacturing-turkiye/)
 
 ## Optional
 - [Sitemap](https://www.maxx-global.net/sitemap.xml)
