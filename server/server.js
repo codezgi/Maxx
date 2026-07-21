@@ -129,7 +129,14 @@ function ziyaretSay(req) {
   const anahtar = crypto.createHash("sha256").update(gun + "|" + ip + "|" + ua).digest("base64").slice(0, 16);
   if (!statsKeys.has(anahtar) && statsKeys.size < 50000) { statsKeys.add(anahtar); d.t++; } // tekil ziyaretçi
   const gunler = Object.keys(stats.days).sort();
-  while (gunler.length > 90) delete stats.days[gunler.shift()]; // 90 günden eskisini sil
+  while (gunler.length > 90) { // 90 günden eski günlükler aylık toplama devredilip silinir
+    const eski = gunler.shift();
+    const ym = eski.slice(0, 7);
+    stats.months = stats.months || {};
+    const a = (stats.months[ym] = stats.months[ym] || { t: 0, g: 0 });
+    a.t += stats.days[eski].t; a.g += stats.days[eski].g;
+    delete stats.days[eski];
+  }
   saveStatsSoon();
 }
 
@@ -1107,6 +1114,7 @@ function adminGirisPage(msg) {
 function adminNav(active) {
   const items = [
     ["/admin/", "Özet"],
+    ["/admin/istatistikler/", "İstatistikler"],
     ["/admin/onaylar/", "Bayilik Onayları"],
     ["/admin/urun-ekle/", "Yeni Ürün"],
     ["/admin/fiyatlar/", "Fiyat Güncelleme"],
@@ -1201,6 +1209,149 @@ function haritaScript() {
   </script>`;
 }
 
+/* ---------------- ziyaretçi istatistik sayfası ---------------- */
+
+const GRAFIK_RENK = { t: "#0b93a6", g: "#c9762a" }; // tekil / görüntüleme — CVD-güvenli çift (doğrulanmış)
+const AY_KISA = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
+
+function tarihGeri(gun, kac) { // "YYYY-MM-DD" → kac gün öncesi
+  const d = new Date(gun + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - kac);
+  return d.toISOString().slice(0, 10);
+}
+
+function niceMax(v) {
+  if (v <= 5) return 5;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 5, 10]) if (m * p >= v) return m * p;
+  return 10 * p;
+}
+
+/* Gruplu çubuk grafik (SVG, sunucuda üretilir). gruplar: [{ad, t, g, ipucu}] */
+function barChart(gruplar) {
+  const W = 720, H = 250, padL = 44, padR = 10, padT = 18, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = niceMax(Math.max(1, ...gruplar.map((x) => Math.max(x.t, x.g))));
+  const n = gruplar.length;
+  const grupW = plotW / n;
+  const barW = Math.max(3, Math.min(26, (grupW - 6) / 2));
+  const y = (v) => padT + plotH * (1 - v / max);
+  const etiketli = n <= 12;                       // az grupta değer etiketi, çokta yalnız hover
+  const herKacta = Math.max(1, Math.ceil(n / 15)); // x ekseni etiket seyreltme
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" style="width:100%;height:auto;display:block">`;
+  for (let i = 0; i <= 5; i++) { // yatay kılavuz: 0..max, 5 adım
+    const v = (max / 5) * i, yy = y(v);
+    s += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#e4ecec" stroke-width="1"/>`;
+    s += `<text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#7a8a8c">${Math.round(v)}</text>`;
+  }
+  const bar = (x, v, renk) => { // üstü 4px yuvarlatılmış, tabana oturan çubuk
+    const yy = y(v), h = padT + plotH - yy;
+    if (v === 0 || h < 1) return `<rect x="${x}" y="${padT + plotH - 1.5}" width="${barW}" height="1.5" fill="${renk}" opacity=".45"/>`;
+    const r = Math.min(4, barW / 2, h);
+    return `<path d="M${x},${padT + plotH} L${x},${yy + r} Q${x},${yy} ${x + r},${yy} L${x + barW - r},${yy} Q${x + barW},${yy} ${x + barW},${yy + r} L${x + barW},${padT + plotH} Z" fill="${renk}"/>`;
+  };
+  gruplar.forEach((gr, i) => {
+    const x0 = padL + grupW * i + (grupW - barW * 2 - 2) / 2;
+    s += `<g class="gbar"><title>${esc(gr.ipucu)}: ${gr.t} tekil ziyaretçi · ${gr.g} sayfa görüntüleme</title>`;
+    s += bar(x0, gr.t, GRAFIK_RENK.t) + bar(x0 + barW + 2, gr.g, GRAFIK_RENK.g);
+    if (etiketli) {
+      s += `<text x="${x0 + barW / 2}" y="${y(gr.t) - 5}" text-anchor="middle" font-size="11" fill="#5c6b6d">${gr.t}</text>`;
+      s += `<text x="${x0 + barW * 1.5 + 2}" y="${y(gr.g) - 5}" text-anchor="middle" font-size="11" fill="#5c6b6d">${gr.g}</text>`;
+    }
+    if (i % herKacta === 0) s += `<text x="${padL + grupW * i + grupW / 2}" y="${H - 8}" text-anchor="middle" font-size="11" fill="#7a8a8c">${esc(gr.ad)}</text>`;
+    s += "</g>";
+  });
+  return s + "</svg>";
+}
+
+function adminIstatistikPage() {
+  const gun = bugunTR();
+  const gunler = Object.keys(stats.days).sort();
+  const ilkAy = Object.keys(stats.months || {}).sort()[0];
+  const ilkGun = ilkAy ? ilkAy + "-01" : gunler[0] || gun;
+  const D = (g) => stats.days[g] || { g: 0, t: 0 };
+
+  // Günlük: son 30 gün (veri başlangıcından öncesi gösterilmez)
+  const gunluk = [];
+  for (let i = 29; i >= 0; i--) {
+    const g = tarihGeri(gun, i);
+    if (g < ilkGun) continue;
+    const [, ay, gunNo] = g.split("-");
+    gunluk.push({ ad: `${+gunNo} ${AY_KISA[+ay - 1]}`, ...{ t: D(g).t, g: D(g).g }, ipucu: g === gun ? "Bugün" : `${+gunNo} ${AY_KISA[+ay - 1]}` });
+  }
+
+  // Aylık: kalıcı aylık toplamlar (90 günden eski günlerin devri) + eldeki günlük kayıtlar
+  const ayToplam = {};
+  for (const [ym, a] of Object.entries(stats.months || {})) ayToplam[ym] = { t: a.t, g: a.g };
+  for (const g of gunler) {
+    const ym = g.slice(0, 7);
+    const a = (ayToplam[ym] = ayToplam[ym] || { t: 0, g: 0 });
+    a.t += D(g).t; a.g += D(g).g;
+  }
+  const aylik = Object.keys(ayToplam).sort().slice(-12).map((ym) => {
+    const [yil, ay] = ym.split("-");
+    return { ad: `${AY_KISA[+ay - 1]} ${yil.slice(2)}`, ...ayToplam[ym], ipucu: `${AY_KISA[+ay - 1]} ${yil}` };
+  });
+
+  // Yıllık (aylık toplamlardan — devredilen eski aylar dahil)
+  const yilToplam = {};
+  for (const [ym, a] of Object.entries(ayToplam)) {
+    const yil = ym.slice(0, 4);
+    const y = (yilToplam[yil] = yilToplam[yil] || { t: 0, g: 0 });
+    y.t += a.t; y.g += a.g;
+  }
+  const yillik = Object.keys(yilToplam).sort().map((yil) => ({ ad: yil, ...yilToplam[yil], ipucu: yil }));
+
+  const buAy = ayToplam[gun.slice(0, 7)] || { t: 0, g: 0 };
+  const toplam = yillik.reduce((a, y) => ({ t: a.t + y.t, g: a.g + y.g }), { t: 0, g: 0 });
+
+  const lejant = `<div class="gr-lejant">
+    <span><i style="background:${GRAFIK_RENK.t}"></i>Tekil Ziyaretçi</span>
+    <span><i style="background:${GRAFIK_RENK.g}"></i>Sayfa Görüntüleme</span>
+  </div>`;
+  const grafikKutu = (baslik, gruplar) => `
+  <div class="kutu">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+      <h2 style="margin:0">${baslik}</h2>${lejant}
+    </div>
+    ${gruplar.length ? barChart(gruplar) : "<p>Henüz veri yok.</p>"}
+  </div>`;
+
+  const stat = (sayi, etiket) => `<div class="card text-center"><h3 style="font-size:2rem;color:var(--accent)">${sayi}</h3><p>${etiket}</p></div>`;
+
+  const fmtGun = (g) => g === gun ? "<strong>Bugün</strong>"
+    : new Date(g + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", weekday: "long" });
+  const tablo = gunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Tekil Ziyaretçi</th><th>Sayfa Görüntüleme</th></tr></thead><tbody>${
+    gunler.slice().reverse().map((g) => `<tr><td>${fmtGun(g)}</td><td>${D(g).t}</td><td>${D(g).g}</td></tr>`).join("")
+  }</tbody></table>` : "<p>Henüz ziyaret kaydı yok.</p>";
+
+  const body = `
+  <style>
+    .gr-lejant { display:flex; gap:16px; font-size:.85rem; color:#5c6b6d; }
+    .gr-lejant i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+    .gbar:hover path { opacity:.75; }
+  </style>
+  <span class="eyebrow">Yönetim Paneli</span>
+  <h1 class="portal-title" style="font-size:2rem">Ziyaretçi İstatistikleri</h1>
+  <p class="portal-sub">Grafiklerde çubukların üzerine gelerek gün/ay değerlerini görebilirsiniz. Veri toplanmaya ${new Date(ilkGun + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })} tarihinde başlandı.</p>
+  <div class="grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+    ${stat((stats.days[gun] || { t: 0 }).t, "Bugünkü Ziyaretçi")}
+    ${stat((stats.days[gun] || { g: 0 }).g, "Bugünkü Görüntüleme")}
+    ${stat(buAy.t, "Bu Ay Ziyaretçi")}
+    ${stat(toplam.t, "Toplam Ziyaretçi")}
+  </div>
+  ${grafikKutu("Günlük — Son 30 Gün", gunluk)}
+  ${grafikKutu("Aylık", aylik)}
+  ${grafikKutu("Yıllık", yillik)}
+  <div class="kutu">
+    <h2 style="margin-bottom:12px">Günlük Döküm</h2>
+    ${tablo}
+    <p style="margin-top:12px"><small>Tekil ziyaretçi: aynı cihaz/tarayıcı gün içinde bir kez sayılır; botlar, arama motorları ve yönetim paneli dahil değildir. Gün, Türkiye saatiyle 00:00'da başlar. Aylık ve yıllık tekil değerleri günlük tekillerin toplamıdır — aynı kişi farklı günlerde girerse her gün ayrı sayılır. Günlük döküm son 90 günü listeler; daha eski günler aylık ve yıllık toplamlarda kalıcı olarak saklanır.</small></p>
+  </div>`;
+  return adminLayout("/admin/istatistikler/", "Ziyaretçi İstatistikleri", body);
+}
+
 function adminOzetPage() {
   const dealers = store.dealers;
   const pending = dealers.filter((d) => d.durum === "beklemede");
@@ -1276,7 +1427,7 @@ function adminOzetPage() {
     ${kart("siparis", store.orders.length, "Toplam Sipariş")}
     ${kart("teklif", (store.quotes || []).length, "Teklif Talebi")}
   </div>
-  ${dlg("ziyaret", "Ziyaretçi İstatistikleri — Son 14 Gün", ziyaretIcerik, "", "")}
+  ${dlg("ziyaret", "Ziyaretçi İstatistikleri — Son 14 Gün", ziyaretIcerik, "/admin/istatistikler/", "Grafikler ve Tüm İstatistikler")}
   ${dlg("bekleyen", "Onay Bekleyen Başvurular", bekleyenIcerik, "/admin/onaylar/", "Bayilik Onayları'na Git")}
   ${dlg("onayli", "Onaylı Bayiler", onayliIcerik, "/admin/onaylar/", "Bayilik Onayları'na Git")}
   ${dlg("siparis", "Tüm Siparişler", siparisIcerik, "/admin/siparisler/", "Siparişlere Git")}
@@ -2346,6 +2497,10 @@ const server = http.createServer(async (req, res) => {
     if (p === "/admin/aciklamalar/" && req.method === "GET") {
       if (!adminSes) return redirect("/admin/");
       return send(adminAciklamalarPage());
+    }
+    if (p === "/admin/istatistikler/" && req.method === "GET") {
+      if (!adminSes) return redirect("/admin/");
+      return send(adminIstatistikPage());
     }
 
     /* ---- Admin: yeni ürün ekle/düzenle ---- */
