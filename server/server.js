@@ -89,6 +89,50 @@ function saveStore() {
   fs.renameSync(tmp, STORE_FILE);
 }
 
+/* ---------------- günlük ziyaretçi sayacı ---------------- */
+
+const STATS_FILE = path.join(DATA_DIR, "stats.json");
+let stats = { days: {}, kGun: "", k: [] }; // days: {"YYYY-MM-DD": {g: görüntüleme, t: tekil}}
+let statsKeys = new Set();                 // bugünün tekil ziyaretçi anahtarları
+let statsGun = "";
+let statsTimer = null;
+
+function bugunTR() { // Türkiye saatine göre gün (YYYY-MM-DD)
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" });
+}
+function loadStats() {
+  try { const s = JSON.parse(fs.readFileSync(STATS_FILE, "utf8")); if (s && s.days) stats = s; } catch {}
+  statsGun = bugunTR();
+  if (stats.kGun === statsGun) statsKeys = new Set(stats.k || []); // yeniden başlatmada bugünün tekilleri korunur
+}
+function saveStatsSoon() {
+  if (statsTimer) return;
+  statsTimer = setTimeout(() => {
+    statsTimer = null;
+    stats.kGun = statsGun; stats.k = [...statsKeys];
+    try {
+      fs.writeFileSync(STATS_FILE + ".tmp", JSON.stringify(stats));
+      fs.renameSync(STATS_FILE + ".tmp", STATS_FILE);
+    } catch (e) { console.error("stats.json yazılamadı:", e.message); }
+  }, 3000);
+  if (statsTimer.unref) statsTimer.unref();
+}
+const BOT_RE = /bot|crawl|spider|slurp|curl|wget|python|java\/|libwww|httpclient|facebookexternalhit|whatsapp|telegram|skypeuripreview|preview|pingdom|uptime|monitor|lighthouse|headless|scrap|scan/i;
+function ziyaretSay(req) {
+  const ua = req.headers["user-agent"] || "";
+  if (!ua || BOT_RE.test(ua)) return; // botlar sayılmaz
+  const gun = bugunTR();
+  if (statsGun !== gun) { statsGun = gun; statsKeys = new Set(); }
+  const d = (stats.days[gun] = stats.days[gun] || { g: 0, t: 0 });
+  d.g++; // sayfa görüntüleme
+  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+  const anahtar = crypto.createHash("sha256").update(gun + "|" + ip + "|" + ua).digest("base64").slice(0, 16);
+  if (!statsKeys.has(anahtar) && statsKeys.size < 50000) { statsKeys.add(anahtar); d.t++; } // tekil ziyaretçi
+  const gunler = Object.keys(stats.days).sort();
+  while (gunler.length > 90) delete stats.days[gunler.shift()]; // 90 günden eskisini sil
+  saveStatsSoon();
+}
+
 /* ---------------- parola (scrypt) ---------------- */
 
 function hashPassword(pw) {
@@ -1170,7 +1214,7 @@ function adminOzetPage() {
     <div class="dlg-govde">${icerik}</div>
     <div class="dlg-alt">
       <button type="button" class="btn btn-outline btn-sm" onclick="this.closest('dialog').close()">Kapat</button>
-      <a class="btn btn-accent btn-sm" href="${gitUrl}">${gitEtiket} →</a>
+      ${gitUrl ? `<a class="btn btn-accent btn-sm" href="${gitUrl}">${gitEtiket} →</a>` : ""}
     </div>
   </dialog>`;
 
@@ -1201,6 +1245,20 @@ function adminOzetPage() {
       <td>${esc(q.urun)}</td><td>${esc(q.mesaj || "")}</td></tr>`).join("")
   }</tbody></table>` : "<p>Henüz teklif talebi yok.</p>";
 
+  // Günlük ziyaretçi istatistiği (son 14 gün)
+  const gun = bugunTR();
+  const ziBugun = stats.days[gun] || { g: 0, t: 0 };
+  const sonGunler = Object.keys(stats.days).sort().reverse().slice(0, 14);
+  const ziyaretIcerik = (sonGunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Tekil Ziyaretçi</th><th>Sayfa Görüntüleme</th></tr></thead><tbody>${
+    sonGunler.map((g) => {
+      const d = stats.days[g];
+      const etiket = g === gun ? "<strong>Bugün</strong>"
+        : new Date(g + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long" });
+      return `<tr><td>${etiket}</td><td>${d.t}</td><td>${d.g}</td></tr>`;
+    }).join("")
+  }</tbody></table>` : "<p>Henüz ziyaret kaydı yok.</p>") +
+  `<p style="margin-top:12px"><small>Tekil ziyaretçi: aynı cihaz/tarayıcı gün içinde bir kez sayılır. Botlar, arama motorları ve yönetim paneli sayıma dahil değildir. Gün, Türkiye saatiyle 00:00'da başlar.</small></p>`;
+
   const kart = (id, sayi, etiket) => `
     <button type="button" class="card text-center ozet-kart" onclick="document.getElementById('dlg-${id}').showModal()">
       <h3 style="font-size:2rem;color:var(--accent)">${sayi}</h3><p>${etiket}</p>
@@ -1211,12 +1269,14 @@ function adminOzetPage() {
   <span class="eyebrow">Yönetim Paneli</span>
   <h1 class="portal-title" style="font-size:2rem">Özet</h1>
   <p class="portal-sub">Hoş geldiniz. Kartlara tıklayarak detayları görüntüleyebilirsiniz.</p>
-  <div class="grid grid-4" style="margin-bottom:24px">
+  <div class="grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+    ${kart("ziyaret", ziBugun.t, "Bugünkü Ziyaretçi")}
     ${kart("bekleyen", pending.length, "Onay Bekleyen")}
     ${kart("onayli", onayli.length, "Onaylı Bayi")}
     ${kart("siparis", store.orders.length, "Toplam Sipariş")}
     ${kart("teklif", (store.quotes || []).length, "Teklif Talebi")}
   </div>
+  ${dlg("ziyaret", "Ziyaretçi İstatistikleri — Son 14 Gün", ziyaretIcerik, "", "")}
   ${dlg("bekleyen", "Onay Bekleyen Başvurular", bekleyenIcerik, "/admin/onaylar/", "Bayilik Onayları'na Git")}
   ${dlg("onayli", "Onaylı Bayiler", onayliIcerik, "/admin/onaylar/", "Bayilik Onayları'na Git")}
   ${dlg("siparis", "Tüm Siparişler", siparisIcerik, "/admin/siparisler/", "Siparişlere Git")}
@@ -2021,6 +2081,11 @@ const server = http.createServer(async (req, res) => {
   const adminSes = readSession(cookies, "yonetim");
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
 
+  // Günlük ziyaretçi sayacı: yalnız site sayfaları (yönetim paneli hariç; .css/.js/.webp gibi dosyalar sayılmaz)
+  if (req.method === "GET" && !url.pathname.startsWith("/admin") &&
+      (url.pathname.endsWith("/") || url.pathname.endsWith(".html") || !/\.[a-z0-9]{1,6}$/i.test(url.pathname)))
+    ziyaretSay(req);
+
   const send = (html, code = 200) => { res.writeHead(code, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN" }); res.end(html); };
   const redirect = (loc) => { res.writeHead(303, { Location: loc }); res.end(); };
 
@@ -2571,6 +2636,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 loadStore();
+loadStats();
 const generatedPw = ensureAdmin();
 server.listen(PORT, () => {
   console.log(`Maxx Global sitesi + bayi portalı çalışıyor (port ${PORT})`);

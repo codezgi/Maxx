@@ -11,6 +11,7 @@
 - [İletişim](https://www.maxx-global.net/iletisim/): Ankara İvedik OSB 1333. Cadde No: 22, +90 312 911 00 11
 
 ## Ürünler (Artroskopi ve Ortopedik İmplantlar)
+- [Sütür Ankorları — kategori sayfası](https://www.maxx-global.net/sutur-ankorlari/): Maxx Global Medikal'in ürettiği tüm sütür ankoru (suture anchor) modelleri — titanyum, PEEK, all-suture ve düğümsüz (knotless) tipler
 - [Titanium Peek Knotless Pushlock](https://www.maxx-global.net/titanium-peek-knotless-pushlock/): Düğümsüz PEEK sütür ankoru (knotless suture anchor)
 - [TI-BUTTON CL System Continuous Loop](https://www.maxx-global.net/ti-button-cl-system-continuous-loop/): Sabit loop endobutton / kortikal fiksasyon düğmesi
 - [TI-BUTTON Without Loop](https://www.maxx-global.net/ti-button-without-loop/): Loopsuz titanyum kortikal fiksasyon düğmesi
@@ -43,6 +44,7 @@
 ## English
 - [English Home](https://www.maxx-global.net/en/): Maxx Global Medical — ISO 13485 certified arthroscopy and orthopedic implant manufacturer in Türkiye
 - [Products (EN)](https://www.maxx-global.net/en/products/)
+- [Suture Anchors — category (EN)](https://www.maxx-global.net/en/suture-anchors/): All suture anchor models manufactured by Maxx Global Medical — titanium, PEEK, all-suture and knotless types
 - [About Us (EN)](https://www.maxx-global.net/en/about-us/)
 - [Blog (EN)](https://www.maxx-global.net/en/blog/): Technical articles on suture anchors, implant materials and medical device manufacturing
 - [What Is a Suture Anchor? (EN)](https://www.maxx-global.net/en/blog/what-is-a-suture-anchor/)
