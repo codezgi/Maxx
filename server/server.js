@@ -1291,7 +1291,7 @@ function adminIstatistikPage() {
   }
   const aylik = Object.keys(ayToplam).sort().slice(-12).map((ym) => {
     const [yil, ay] = ym.split("-");
-    return { ad: `${AY_KISA[+ay - 1]} ${yil.slice(2)}`, ...ayToplam[ym], ipucu: `${AY_KISA[+ay - 1]} ${yil}` };
+    return { ad: `${AY_KISA[+ay - 1]} ${yil}`, ...ayToplam[ym], ipucu: `${AY_KISA[+ay - 1]} ${yil}` };
   });
 
   // Yıllık (aylık toplamlardan — devredilen eski aylar dahil)
