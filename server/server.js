@@ -1247,7 +1247,7 @@ function tarihGeri(gun, kac) { // "YYYY-MM-DD" → kac gün öncesi
 function niceMax(v) {
   if (v <= 5) return 5;
   const p = Math.pow(10, Math.floor(Math.log10(v)));
-  for (const m of [1, 2, 5, 10]) if (m * p >= v) return m * p;
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
   return 10 * p;
 }
 
