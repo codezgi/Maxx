@@ -92,8 +92,9 @@ function saveStore() {
 /* ---------------- günlük ziyaretçi sayacı ---------------- */
 
 const STATS_FILE = path.join(DATA_DIR, "stats.json");
-let stats = { days: {}, kGun: "", k: [] }; // days: {"YYYY-MM-DD": {g: görüntüleme, t: tekil}}
-let statsKeys = new Set();                 // bugünün tekil ziyaretçi anahtarları
+let stats = { days: {}, kGun: "", k: [], ki: [] }; // days: {"YYYY-MM-DD": {g: görüntüleme, t: tekil, i: gerçek tekil, ig: gerçek görüntüleme}}
+let statsKeys = new Set();                 // bugünün tekil ziyaretçi anahtarları (ham: bot dahil olabilir)
+let statsInsanKeys = new Set();            // bugünün doğrulanmış (JS çalıştıran) ziyaretçi anahtarları
 let statsGun = "";
 let statsTimer = null;
 
@@ -103,13 +104,16 @@ function bugunTR() { // Türkiye saatine göre gün (YYYY-MM-DD)
 function loadStats() {
   try { const s = JSON.parse(fs.readFileSync(STATS_FILE, "utf8")); if (s && s.days) stats = s; } catch {}
   statsGun = bugunTR();
-  if (stats.kGun === statsGun) statsKeys = new Set(stats.k || []); // yeniden başlatmada bugünün tekilleri korunur
+  if (stats.kGun === statsGun) { // yeniden başlatmada bugünün tekilleri korunur
+    statsKeys = new Set(stats.k || []);
+    statsInsanKeys = new Set(stats.ki || []);
+  }
 }
 function saveStatsSoon() {
   if (statsTimer) return;
   statsTimer = setTimeout(() => {
     statsTimer = null;
-    stats.kGun = statsGun; stats.k = [...statsKeys];
+    stats.kGun = statsGun; stats.k = [...statsKeys]; stats.ki = [...statsInsanKeys];
     try {
       fs.writeFileSync(STATS_FILE + ".tmp", JSON.stringify(stats));
       fs.renameSync(STATS_FILE + ".tmp", STATS_FILE);
@@ -118,15 +122,24 @@ function saveStatsSoon() {
   if (statsTimer.unref) statsTimer.unref();
 }
 const BOT_RE = /bot|crawl|spider|slurp|curl|wget|python|java\/|libwww|httpclient|facebookexternalhit|whatsapp|telegram|skypeuripreview|preview|pingdom|uptime|monitor|lighthouse|headless|scrap|scan/i;
-function ziyaretSay(req) {
+function ziyaretAnahtar(req, gun) { // aynı cihaz/tarayıcı için günlük tekil anahtar
+  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
   const ua = req.headers["user-agent"] || "";
-  if (!ua || BOT_RE.test(ua)) return; // botlar sayılmaz
+  return crypto.createHash("sha256").update(gun + "|" + ip + "|" + ua).digest("base64").slice(0, 16);
+}
+function ziyaretGunu(req) { // bot filtresi + gün dönüşü; sayılmayacaksa null
+  const ua = req.headers["user-agent"] || "";
+  if (!ua || BOT_RE.test(ua)) return null; // kendini tanıtan botlar hiç sayılmaz
   const gun = bugunTR();
-  if (statsGun !== gun) { statsGun = gun; statsKeys = new Set(); }
+  if (statsGun !== gun) { statsGun = gun; statsKeys = new Set(); statsInsanKeys = new Set(); }
+  return gun;
+}
+function ziyaretSay(req) { // ham sayım: sayfayı çeken herkes (tarayıcı taklidi yapan botlar dahil)
+  const gun = ziyaretGunu(req);
+  if (!gun) return;
   const d = (stats.days[gun] = stats.days[gun] || { g: 0, t: 0 });
   d.g++; // sayfa görüntüleme
-  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
-  const anahtar = crypto.createHash("sha256").update(gun + "|" + ip + "|" + ua).digest("base64").slice(0, 16);
+  const anahtar = ziyaretAnahtar(req, gun);
   if (!statsKeys.has(anahtar) && statsKeys.size < 50000) { statsKeys.add(anahtar); d.t++; } // tekil ziyaretçi
   const gunler = Object.keys(stats.days).sort();
   while (gunler.length > 90) { // 90 günden eski günlükler aylık toplama devredilip silinir
@@ -135,8 +148,19 @@ function ziyaretSay(req) {
     stats.months = stats.months || {};
     const a = (stats.months[ym] = stats.months[ym] || { t: 0, g: 0 });
     a.t += stats.days[eski].t; a.g += stats.days[eski].g;
+    a.i = (a.i || 0) + (stats.days[eski].i || 0); a.ig = (a.ig || 0) + (stats.days[eski].ig || 0);
     delete stats.days[eski];
   }
+  saveStatsSoon();
+}
+function ziyaretDogrula(req) { // doğrulanmış sayım: sayfadaki JS'in gönderdiği sinyal (botlar genelde JS çalıştırmaz)
+  const gun = ziyaretGunu(req);
+  if (!gun) return;
+  if (!stats.izBaslangic) stats.izBaslangic = gun; // bot ayrımının başladığı gün
+  const d = (stats.days[gun] = stats.days[gun] || { g: 0, t: 0 });
+  d.ig = (d.ig || 0) + 1; // gerçek sayfa görüntüleme
+  const anahtar = ziyaretAnahtar(req, gun);
+  if (!statsInsanKeys.has(anahtar) && statsInsanKeys.size < 50000) { statsInsanKeys.add(anahtar); d.i = (d.i || 0) + 1; }
   saveStatsSoon();
 }
 
@@ -1253,7 +1277,7 @@ function barChart(gruplar) {
   };
   gruplar.forEach((gr, i) => {
     const x0 = padL + grupW * i + (grupW - barW * 2 - 2) / 2;
-    s += `<g class="gbar"><title>${esc(gr.ipucu)}: ${gr.t} tekil ziyaretçi · ${gr.g} sayfa görüntüleme</title>`;
+    s += `<g class="gbar"><title>${esc(gr.ipucu)}: ${gr.t} gerçek ziyaretçi · ${gr.g} sayfa görüntüleme</title>`;
     s += bar(x0, gr.t, GRAFIK_RENK.t) + bar(x0 + barW + 2, gr.g, GRAFIK_RENK.g);
     if (etiketli) {
       s += `<text x="${x0 + barW / 2}" y="${y(gr.t) - 5}" text-anchor="middle" font-size="11" fill="#5c6b6d">${gr.t}</text>`;
@@ -1270,7 +1294,14 @@ function adminIstatistikPage() {
   const gunler = Object.keys(stats.days).sort();
   const ilkAy = Object.keys(stats.months || {}).sort()[0];
   const ilkGun = ilkAy ? ilkAy + "-01" : gunler[0] || gun;
-  const D = (g) => stats.days[g] || { g: 0, t: 0 };
+  const izb = stats.izBaslangic || ""; // bot ayrımının başladığı gün
+  // Görüntülenen değerler: bot ayrımı başladıktan sonra doğrulanmış (gerçek insan) sayılar;
+  // öncesindeki günlerde ham sayılar. bt/bg = bot tahmini (ham − doğrulanmış), ayrım yoksa null.
+  const D = (g) => {
+    const d = stats.days[g] || { g: 0, t: 0 };
+    if (!izb || g < izb) return { t: d.t || 0, g: d.g || 0, bt: null, bg: null };
+    return { t: d.i || 0, g: d.ig || 0, bt: Math.max(0, (d.t || 0) - (d.i || 0)), bg: Math.max(0, (d.g || 0) - (d.ig || 0)) };
+  };
 
   // Günlük: son 30 gün (veri başlangıcından öncesi gösterilmez)
   const gunluk = [];
@@ -1283,7 +1314,8 @@ function adminIstatistikPage() {
 
   // Aylık: kalıcı aylık toplamlar (90 günden eski günlerin devri) + eldeki günlük kayıtlar
   const ayToplam = {};
-  for (const [ym, a] of Object.entries(stats.months || {})) ayToplam[ym] = { t: a.t, g: a.g };
+  for (const [ym, a] of Object.entries(stats.months || {}))
+    ayToplam[ym] = izb && ym >= izb.slice(0, 7) ? { t: a.i || 0, g: a.ig || 0 } : { t: a.t, g: a.g };
   for (const g of gunler) {
     const ym = g.slice(0, 7);
     const a = (ayToplam[ym] = ayToplam[ym] || { t: 0, g: 0 });
@@ -1307,7 +1339,7 @@ function adminIstatistikPage() {
   const toplam = yillik.reduce((a, y) => ({ t: a.t + y.t, g: a.g + y.g }), { t: 0, g: 0 });
 
   const lejant = `<div class="gr-lejant">
-    <span><i style="background:${GRAFIK_RENK.t}"></i>Tekil Ziyaretçi</span>
+    <span><i style="background:${GRAFIK_RENK.t}"></i>Gerçek Ziyaretçi</span>
     <span><i style="background:${GRAFIK_RENK.g}"></i>Sayfa Görüntüleme</span>
   </div>`;
   const grafikKutu = (baslik, gruplar) => `
@@ -1318,12 +1350,13 @@ function adminIstatistikPage() {
     ${gruplar.length ? barChart(gruplar) : "<p>Henüz veri yok.</p>"}
   </div>`;
 
-  const stat = (sayi, etiket) => `<div class="card text-center"><h3 style="font-size:2rem;color:var(--accent)">${sayi}</h3><p>${etiket}</p></div>`;
+  const stat = (sayi, etiket, alt) => `<div class="card text-center"><h3 style="font-size:2rem;color:var(--accent)">${sayi}</h3><p>${etiket}</p>${alt ? `<small style="color:#8a999b">${alt}</small>` : ""}</div>`;
 
   const fmtGun = (g) => g === gun ? "<strong>Bugün</strong>"
     : new Date(g + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", weekday: "long" });
-  const tablo = gunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Tekil Ziyaretçi</th><th>Sayfa Görüntüleme</th></tr></thead><tbody>${
-    gunler.slice().reverse().map((g) => `<tr><td>${fmtGun(g)}</td><td>${D(g).t}</td><td>${D(g).g}</td></tr>`).join("")
+  const tablo = gunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Gerçek Ziyaretçi</th><th>Sayfa Görüntüleme</th><th>Bot / Otomatik <small>(sayım dışı)</small></th></tr></thead><tbody>${
+    gunler.slice().reverse().map((g) => { const d = D(g);
+      return `<tr><td>${fmtGun(g)}</td><td>${d.t}</td><td>${d.g}</td><td>${d.bt === null ? "—" : d.bt}</td></tr>`; }).join("")
   }</tbody></table>` : "<p>Henüz ziyaret kaydı yok.</p>";
 
   const body = `
@@ -1336,8 +1369,8 @@ function adminIstatistikPage() {
   <h1 class="portal-title" style="font-size:2rem">Ziyaretçi İstatistikleri</h1>
   <p class="portal-sub">Grafiklerde çubukların üzerine gelerek gün/ay değerlerini görebilirsiniz. Veri toplanmaya ${new Date(ilkGun + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })} tarihinde başlandı.</p>
   <div class="grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
-    ${stat((stats.days[gun] || { t: 0 }).t, "Bugünkü Ziyaretçi")}
-    ${stat((stats.days[gun] || { g: 0 }).g, "Bugünkü Görüntüleme")}
+    ${stat(D(gun).t, "Bugünkü Ziyaretçi", D(gun).bt === null ? "" : `+${D(gun).bt} bot sayım dışı`)}
+    ${stat(D(gun).g, "Bugünkü Görüntüleme", D(gun).bg === null ? "" : `+${D(gun).bg} bot sayım dışı`)}
     ${stat(buAy.t, "Bu Ay Ziyaretçi")}
     ${stat(toplam.t, "Toplam Ziyaretçi")}
   </div>
@@ -1347,7 +1380,7 @@ function adminIstatistikPage() {
   <div class="kutu">
     <h2 style="margin-bottom:12px">Günlük Döküm</h2>
     ${tablo}
-    <p style="margin-top:12px"><small>Tekil ziyaretçi: aynı cihaz/tarayıcı gün içinde bir kez sayılır; botlar, arama motorları ve yönetim paneli dahil değildir. Gün, Türkiye saatiyle 00:00'da başlar. Aylık ve yıllık tekil değerleri günlük tekillerin toplamıdır — aynı kişi farklı günlerde girerse her gün ayrı sayılır. Günlük döküm son 90 günü listeler; daha eski günler aylık ve yıllık toplamlarda kalıcı olarak saklanır.</small></p>
+    <p style="margin-top:12px"><small>Gerçek ziyaretçi: sayfayı gerçek bir tarayıcıda açan tekil cihaz/tarayıcılar (tarayıcı doğrulaması ile); aynı cihaz gün içinde bir kez sayılır, yönetim paneli dahil değildir. Kendini tanıtan botlar ve arama motorları hiç sayılmaz; tarayıcı gibi görünüp doğrulamayı geçemeyen bot/otomatik trafik ise "Bot / Otomatik" sütununda ayrıca gösterilir ve ziyaretçi sayısına dahil edilmez.${izb ? ` Bot ayrımı ${new Date(izb + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })} tarihinde başladı — önceki günler ayrım yapılamadığı için ham sayıları gösterir.` : ""} Gün, Türkiye saatiyle 00:00'da başlar. Aylık ve yıllık değerler günlük değerlerin toplamıdır — aynı kişi farklı günlerde girerse her gün ayrı sayılır. Günlük döküm son 90 günü listeler; daha eski günler aylık ve yıllık toplamlarda kalıcı olarak saklanır.</small></p>
   </div>`;
   return adminLayout("/admin/istatistikler/", "Ziyaretçi İstatistikleri", body);
 }
@@ -1398,17 +1431,23 @@ function adminOzetPage() {
 
   // Günlük ziyaretçi istatistiği (son 14 gün)
   const gun = bugunTR();
-  const ziBugun = stats.days[gun] || { g: 0, t: 0 };
+  const izb = stats.izBaslangic || "";
+  const ziD = (g) => { // bot ayrımı sonrası doğrulanmış sayılar; öncesinde ham (bkz. adminIstatistikPage)
+    const d = stats.days[g] || { g: 0, t: 0 };
+    if (!izb || g < izb) return { t: d.t || 0, g: d.g || 0, bt: null };
+    return { t: d.i || 0, g: d.ig || 0, bt: Math.max(0, (d.t || 0) - (d.i || 0)) };
+  };
+  const ziBugun = ziD(gun);
   const sonGunler = Object.keys(stats.days).sort().reverse().slice(0, 14);
-  const ziyaretIcerik = (sonGunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Tekil Ziyaretçi</th><th>Sayfa Görüntüleme</th></tr></thead><tbody>${
+  const ziyaretIcerik = (sonGunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Gerçek Ziyaretçi</th><th>Sayfa Görüntüleme</th><th>Bot / Otomatik</th></tr></thead><tbody>${
     sonGunler.map((g) => {
-      const d = stats.days[g];
+      const d = ziD(g);
       const etiket = g === gun ? "<strong>Bugün</strong>"
         : new Date(g + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long" });
-      return `<tr><td>${etiket}</td><td>${d.t}</td><td>${d.g}</td></tr>`;
+      return `<tr><td>${etiket}</td><td>${d.t}</td><td>${d.g}</td><td>${d.bt === null ? "—" : d.bt}</td></tr>`;
     }).join("")
   }</tbody></table>` : "<p>Henüz ziyaret kaydı yok.</p>") +
-  `<p style="margin-top:12px"><small>Tekil ziyaretçi: aynı cihaz/tarayıcı gün içinde bir kez sayılır. Botlar, arama motorları ve yönetim paneli sayıma dahil değildir. Gün, Türkiye saatiyle 00:00'da başlar.</small></p>`;
+  `<p style="margin-top:12px"><small>Gerçek ziyaretçi: sayfayı gerçek bir tarayıcıda açan tekil cihaz/tarayıcılar; aynı cihaz gün içinde bir kez sayılır. Botlar, arama motorları ve yönetim paneli sayıma dahil değildir; tarayıcı gibi görünen bot/otomatik trafik "Bot / Otomatik" sütununda ayrı gösterilir. Gün, Türkiye saatiyle 00:00'da başlar.</small></p>`;
 
   const kart = (id, sayi, etiket) => `
     <button type="button" class="card text-center ozet-kart" onclick="document.getElementById('dlg-${id}').showModal()">
@@ -1421,7 +1460,7 @@ function adminOzetPage() {
   <h1 class="portal-title" style="font-size:2rem">Özet</h1>
   <p class="portal-sub">Hoş geldiniz. Kartlara tıklayarak detayları görüntüleyebilirsiniz.</p>
   <div class="grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
-    ${kart("ziyaret", ziBugun.t, "Bugünkü Ziyaretçi")}
+    ${kart("ziyaret", ziBugun.t, "Bugünkü Ziyaretçi" + (ziBugun.bt ? ` <small style="color:#8a999b">(+${ziBugun.bt} bot)</small>` : ""))}
     ${kart("bekleyen", pending.length, "Onay Bekleyen")}
     ${kart("onayli", onayli.length, "Onaylı Bayi")}
     ${kart("siparis", store.orders.length, "Toplam Sipariş")}
@@ -2236,6 +2275,13 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && !url.pathname.startsWith("/admin") &&
       (url.pathname.endsWith("/") || url.pathname.endsWith(".html") || !/\.[a-z0-9]{1,6}$/i.test(url.pathname)))
     ziyaretSay(req);
+
+  // Tarayıcı doğrulama sinyali (assets/js/main.js gönderir): gerçek insan / bot ayrımı
+  if (p === "/api/iz/") {
+    if (req.method === "POST") ziyaretDogrula(req);
+    res.writeHead(204, { "Cache-Control": "no-store" });
+    return res.end();
+  }
 
   const send = (html, code = 200) => { res.writeHead(code, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN" }); res.end(html); };
   const redirect = (loc) => { res.writeHead(303, { Location: loc }); res.end(); };

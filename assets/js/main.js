@@ -4,6 +4,16 @@
 (function () {
   "use strict";
 
+  /* ---------- Ziyaretçi doğrulama sinyali ----------
+     Sunucudaki sayaç bu sinyali gönderen ziyaretçileri "gerçek insan" sayar;
+     JS çalıştırmayan botlar gönderemez. Otomasyon tarayıcıları (webdriver) hariç. */
+  try {
+    if (!navigator.webdriver) {
+      if (navigator.sendBeacon) navigator.sendBeacon("/api/iz");
+      else fetch("/api/iz", { method: "POST", keepalive: true }).catch(function () {});
+    }
+  } catch (e) { /* sayım sitenin çalışmasını asla engellemesin */ }
+
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* ---------- Mobil menü ---------- */
