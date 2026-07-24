@@ -121,6 +121,14 @@ function saveStatsSoon() {
   }, 3000);
   if (statsTimer.unref) statsTimer.unref();
 }
+function saveStatsNow() { // admin işlemleri için anlık, senkron yazım
+  if (statsTimer) { clearTimeout(statsTimer); statsTimer = null; }
+  stats.kGun = statsGun; stats.k = [...statsKeys]; stats.ki = [...statsInsanKeys];
+  try {
+    fs.writeFileSync(STATS_FILE + ".tmp", JSON.stringify(stats));
+    fs.renameSync(STATS_FILE + ".tmp", STATS_FILE);
+  } catch (e) { console.error("stats.json yazılamadı:", e.message); }
+}
 const BOT_RE = /bot|crawl|spider|slurp|curl|wget|python|java\/|libwww|httpclient|facebookexternalhit|whatsapp|telegram|skypeuripreview|preview|pingdom|uptime|monitor|lighthouse|headless|scrap|scan/i;
 function ziyaretAnahtar(req, gun) { // aynı cihaz/tarayıcı için günlük tekil anahtar
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
@@ -1354,9 +1362,9 @@ function adminIstatistikPage() {
 
   const fmtGun = (g) => g === gun ? "<strong>Bugün</strong>"
     : new Date(g + "T12:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", weekday: "long" });
-  const tablo = gunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Gerçek Ziyaretçi</th><th>Sayfa Görüntüleme</th><th>Bot / Otomatik <small>(sayım dışı)</small></th></tr></thead><tbody>${
+  const tablo = gunler.length ? `<table class="liste"><thead><tr><th>Tarih</th><th>Gerçek Ziyaretçi</th><th>Sayfa Görüntüleme</th><th>Bot / Otomatik <small>(sayım dışı)</small></th><th></th></tr></thead><tbody>${
     gunler.slice().reverse().map((g) => { const d = D(g);
-      return `<tr><td>${fmtGun(g)}</td><td>${d.t}</td><td>${d.g}</td><td>${d.bt === null ? "—" : d.bt}</td></tr>`; }).join("")
+      return `<tr><td>${fmtGun(g)}</td><td>${d.t}</td><td>${d.g}</td><td>${d.bt === null ? "—" : d.bt}</td><td style="text-align:right"><form method="post" action="/admin/istatistik-sil/" style="display:inline" onsubmit="return confirm('${esc(fmtGun(g).replace(/<[^>]+>/g, ""))} tarihli istatistik kaydı silinsin mi? Bu işlem geri alınamaz.')"><input type="hidden" name="gun" value="${g}"><button class="btn btn-outline btn-sm">Sil</button></form></td></tr>`; }).join("")
   }</tbody></table>` : "<p>Henüz ziyaret kaydı yok.</p>";
 
   const body = `
@@ -2547,6 +2555,16 @@ const server = http.createServer(async (req, res) => {
     if (p === "/admin/istatistikler/" && req.method === "GET") {
       if (!adminSes) return redirect("/admin/");
       return send(adminIstatistikPage());
+    }
+    if (p === "/admin/istatistik-sil/" && req.method === "POST") {
+      if (!adminSes) return redirect("/admin/");
+      const f = parseForm(await readBody(req));
+      const g = clamp(f.gun, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(g) && stats.days[g]) {
+        delete stats.days[g];
+        saveStatsNow();
+      }
+      return redirect("/admin/istatistikler/");
     }
 
     /* ---- Admin: yeni ürün ekle/düzenle ---- */
