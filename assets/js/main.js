@@ -93,12 +93,12 @@
     gateTitle: "For healthcare professionals",
     gateBody: "This section contains technical and scientific information about medical devices intended for healthcare professionals and technical staff of healthcare institutions, in line with medical device promotion rules. It is not medical advice for patients.",
     gateYes: "I am a healthcare professional / authorised partner",
-    gateNo: "Return to home page", prev: "Previous products", next: "Next products", home: "/en/"
+    gateNo: "Return to home page", prev: "Previous", next: "Next", more: "Show more", less: "Show less", home: "/en/"
   } : {
     gateTitle: "Sağlık meslek mensupları için",
     gateBody: "Bu bölüm, tıbbi cihaz tanıtım mevzuatı gereği sağlık meslek mensuplarına ve sağlık kurum ve kuruluşlarının teknik elemanlarına yönelik teknik ve bilimsel bilgiler içerir. Hastalara yönelik tıbbi tavsiye değildir.",
     gateYes: "Sağlık meslek mensubuyum / yetkili iş ortağıyım",
-    gateNo: "Ana sayfaya dön", prev: "Önceki ürünler", next: "Sonraki ürünler", home: "/"
+    gateNo: "Ana sayfaya dön", prev: "Önceki", next: "Sonraki", more: "Daha fazlasını göster", less: "Daha az göster", home: "/"
   };
 
   /* ---------- Mesleki içerik bildirimi (Yönetmelik m.18/2, m.19/4) ---------- */
@@ -137,18 +137,15 @@
   }
   headerState();
 
-  /* ---------- Ürün slaytı: sürükleme, oklar, ilerleme ---------- */
+  /* ---------- Kaydırmalı diziler: oklar ve ilerleme çubuğu ---------- */
   var ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
-  document.querySelectorAll("[data-carousel]").forEach(function (root) {
-    var track = root.querySelector(".carousel-track");
-    if (!track) return;
-    var paused = false;
+  function scrollUi(track, after, onUse) {
     var ui = document.createElement("div");
     ui.className = "carousel-ui";
     ui.innerHTML = '<div class="carousel-bar" aria-hidden="true"><i></i></div><div class="carousel-btns">' +
       '<button type="button" class="carousel-btn" data-dir="-1" aria-label="' + T.prev + '" style="transform:scaleX(-1)">' + ARROW + "</button>" +
       '<button type="button" class="carousel-btn" data-dir="1" aria-label="' + T.next + '">' + ARROW + "</button></div>";
-    root.appendChild(ui);
+    after.parentNode.insertBefore(ui, after.nextSibling);
     var bar = ui.querySelector(".carousel-bar i");
     function progress() {
       var max = track.scrollWidth - track.clientWidth;
@@ -168,12 +165,67 @@
     }
     ui.addEventListener("click", function (ev) {
       var b = ev.target.closest("[data-dir]");
-      if (b) { step(parseInt(b.getAttribute("data-dir"), 10)); paused = true; root.setAttribute("data-held", "1"); }
+      if (b) { step(parseInt(b.getAttribute("data-dir"), 10)); if (onUse) onUse(); }
     });
+    return step;
+  }
+  var isMobile = window.matchMedia("(max-width: 760px)").matches;
+  if (isMobile) {
+    document.querySelectorAll(".h-scroll").forEach(function (g) {
+      if (g.scrollWidth > g.clientWidth + 4) scrollUi(g, g);
+    });
+  }
+
+  /* ---------- Mobil: uzun metni kısalt, "Daha fazlasını göster" (metin DOM'da kalır) ---------- */
+  if (isMobile) {
+    var clampText = function (scope, first, rest, boxes, lines, min) {
+      if (!first) return;
+      var all = [first].concat(rest), len = 0;
+      all.forEach(function (el) { len += el.textContent.length; });
+      if (len < min) return;
+      scope.classList.add("is-clamp");
+      first.classList.add("clamp-first");
+      first.style.setProperty("--lines", lines);
+      rest.forEach(function (el) { el.classList.add("clamp-rest"); });
+      boxes.forEach(function (el) { el.classList.add("clamp-box"); });
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "more-btn"; btn.setAttribute("aria-expanded", "false");
+      btn.textContent = T.more;
+      var anchor = (boxes.length ? boxes[boxes.length - 1] : all[all.length - 1]);
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      btn.addEventListener("click", function () {
+        var open = scope.classList.toggle("is-open");
+        btn.textContent = open ? T.less : T.more;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        if (!open) { var r = scope.getBoundingClientRect(); if (r.top < 0) window.scrollBy(0, r.top - 90); }
+      });
+    };
+    var toArr = function (l) { return Array.prototype.slice.call(l); };
+    document.querySelectorAll(".section-head").forEach(function (h) {
+      var ps = toArr(h.querySelectorAll(":scope > p"));
+      clampText(h, ps[0], ps.slice(1), [], 3, 170);
+    });
+    document.querySelectorAll(".about-grid > div:not(.about-media), .why-grid > div:not(.globe-wrap)").forEach(function (d) {
+      var ps = toArr(d.querySelectorAll(":scope > p.mt-2"));
+      clampText(d, ps[0], ps.slice(1), toArr(d.querySelectorAll(":scope > .icon-box")), 4, 240);
+    });
+    document.querySelectorAll(".prose").forEach(function (d) {
+      var kids = toArr(d.children).filter(function (el) { return el.tagName !== "SCRIPT"; });
+      clampText(d, kids[0], kids.slice(1), [], 5, 420);
+    });
+  }
+
+  /* ---------- Ürün slaytı: sürükleme, oklar, otomatik geçiş ---------- */
+  document.querySelectorAll("[data-carousel]").forEach(function (root) {
+    var track = root.querySelector(".carousel-track");
+    if (!track) return;
+    var paused = false;
+    var step = scrollUi(track, track, function () { paused = true; root.setAttribute("data-held", "1"); });
     root.addEventListener("mouseenter", function () { paused = true; });
     root.addEventListener("mouseleave", function () { if (!root.getAttribute("data-held")) paused = false; });
     root.addEventListener("focusin", function () { paused = true; });
     root.addEventListener("focusout", function () { if (!root.getAttribute("data-held")) paused = false; });
+    track.addEventListener("touchstart", function () { paused = true; root.setAttribute("data-held", "1"); }, { passive: true });
 
     var startX = 0, startScroll = 0, dragging = false, moved = false;
     track.addEventListener("pointerdown", function (ev) {
@@ -210,7 +262,7 @@
     var loadScenes = function () {
       if (loadScenes.done) return; loadScenes.done = true;
       var s = document.createElement("script");
-      s.src = "/assets/js/scenes.js?v=motion-20261103j"; s.async = true;
+      s.src = "/assets/js/scenes.js?v=motion-20261103l"; s.async = true;
       document.head.appendChild(s);
     };
     if ("IntersectionObserver" in window) {
@@ -248,7 +300,7 @@
       progressBar.style.setProperty("--p", Math.min(1, Math.max(0, -r.top / Math.max(1, r.height - vh))).toFixed(4));
     }
     if (reduceMotion) return;
-    if (heroInner && y < vh * 1.1) {
+    if (heroInner && y < vh * 1.1 && window.innerWidth > 760) {
       heroInner.style.setProperty("--hero-y", (y * .12).toFixed(1) + "px");
       heroInner.style.setProperty("--hero-o", Math.max(0, 1 - y / (vh * .8)).toFixed(3));
     }

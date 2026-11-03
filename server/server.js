@@ -2072,7 +2072,7 @@ ${faqHtml}
         <span class="eyebrow">${en ? "Other Products" : "Diğer Ürünler"}</span>
         <h2>${en ? "Products You May Be Interested In" : "İlginizi Çekebilecek Ürünler"}</h2>
       </div>
-      <div class="grid grid-3">
+      <div class="grid grid-3 h-scroll">
 ${rel}
       </div>
     </div>

@@ -177,7 +177,7 @@
   function resize() {
     var r = host.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    dpr = Math.min(window.devicePixelRatio || 1, 2); w = r.width; h = r.height;
+    dpr = Math.min(window.devicePixelRatio || 1, r.width < 600 ? 3 : 2); w = r.width; h = r.height;
     glc.width = net.width = Math.round(w * dpr); glc.height = net.height = Math.round(h * dpr);
     if (ready && reduce) draw(1e6, 0);
   }
@@ -207,5 +207,5 @@
     resize();
     if (reduce) draw(1e6, 0);
   };
-  img.src = "/assets/img/globe-land.webp?v=motion-20261103j";
+  img.src = "/assets/img/globe-land.webp?v=motion-20261103l";
 })();
