@@ -908,3 +908,4 @@ body.nav-open .site-header { transform: none; }
   .js [data-anim], .js [data-anim="mask"], .js [data-anim="line"], .js .ta-char, .js [data-anim="mask"] > img { opacity: 1; transform: none; clip-path: none; }
   .hero-inner { transform: none; opacity: 1; }
 }
+.stat-cards:has(> :only-child) { grid-template-columns: 1fr; }

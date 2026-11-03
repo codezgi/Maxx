@@ -207,5 +207,5 @@
     resize();
     if (reduce) draw(1e6, 0);
   };
-  img.src = "/assets/img/globe-land.webp?v=motion-20261103i";
+  img.src = "/assets/img/globe-land.webp?v=motion-20261103j";
 })();
