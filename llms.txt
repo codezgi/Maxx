@@ -35,6 +35,9 @@
 - [Sütür Ankoru Nedir? Çeşitleri ve Kullanım Alanları](https://www.maxx-global.net/blog/sutur-ankoru-nedir/): Sütür ankoru tanımı; titanyum, PEEK, all-suture ve knotless ankor tipleri; çap seçimi ve kullanım alanları
 - [PEEK ve Titanyum Sütür Ankoru: Farkları ve Seçim](https://www.maxx-global.net/blog/peek-titanyum-sutur-ankoru/): Mukavemet, radyolüsenlik/görüntüleme ve biyouyumluluk karşılaştırması; hibrit PEEK+titanyum ürünler
 - [Türkiye'de Medikal Cihaz Üretimi ve ISO 13485](https://www.maxx-global.net/blog/turkiyede-medikal-cihaz-uretimi/): ISO 13485 kalite yönetim sistemi, CNC kayar torna üretim süreci, OEM / özel etiket (private label) üretim
+- [Sabit ve Ayarlanabilir Döngülü Kortikal Düğmeler: Literatür Özeti](https://www.maxx-global.net/blog/sabit-ayarlanabilir-dongu-kortikal-dugme/): Ön çapraz bağ rekonstrüksiyonunda sabit ve ayarlanabilir döngülü kortikal düğmeleri karşılaştıran derlemelerin bulguları ve sınırlılıkları.
+- [Rotator Manşet Onarımında Düğümlü ve Düğümsüz Medial Sıra: Literatür Özeti](https://www.maxx-global.net/blog/dugumlu-dugumsuz-medial-sira/): Suture bridge tekniğinde düğümlü ve düğümsüz medial sırayı karşılaştıran 2023 meta-analizinin bulguları, sınırlılıkları ve yorumlama notları.
+- [Sindezmoz Fiksasyonunda Sütür Düğme ve Vida: Meta-analizler Ne Diyor?](https://www.maxx-global.net/blog/sindezmoz-sutur-dugme-vida-literatur/): Ayak bileği sindezmoz yaralanmalarında sütür düğme ve sindezmoz vidasını karşılaştıran üç meta-analizin bulguları ve farklılaşan sonuçları.
 
 ## Bayilik
 - [Bayilik Başvurusu](https://www.maxx-global.net/bayilik-al/)
@@ -53,3 +56,9 @@
 
 ## Optional
 - [Sitemap](https://www.maxx-global.net/sitemap.xml)
+- [Fixed- vs Adjustable-Loop Cortical Buttons: A Literature Summary (EN)](https://www.maxx-global.net/en/blog/fixed-vs-adjustable-loop-cortical-buttons/)
+- [Knotted vs Knotless Medial Row in Rotator Cuff Repair: A Literature Summary (EN)](https://www.maxx-global.net/en/blog/knotted-vs-knotless-medial-row/)
+- [Suture Button vs Screw for Syndesmosis Fixation: What Meta-analyses Report (EN)](https://www.maxx-global.net/en/blog/syndesmosis-suture-button-vs-screw-evidence/)
+
+## İçerik notu
+Blogdaki literatür özetleri kaynak gösterilerek hazırlanmıştır, belirli bir Maxx Global ürününe özgü değildir ve tıbbi tavsiye niteliği taşımaz. Ürün ve bilimsel içerikler sağlık meslek mensuplarına yöneliktir.

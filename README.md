@@ -13,7 +13,8 @@ en/                     → İngilizce sayfalar (/en/about-us/, /en/products/ ..
 <urun-adi>-en/          → 17 EN ürün detayı (ör. anchor-with-needles-en/)
 tesekkurler/, en/thank-you/ → Form sonrası sayfalar (arama motorlarına kapalı)
 assets/css/style.css    → Sitenin tüm tasarımı (tek dosya)
-assets/js/main.js       → Mobil menü + animasyonlar + slider (kütüphanesiz)
+assets/js/main.js       → Mobil menü + motion katmanı + slider + mesleki kullanıcı bildirimi (kütüphanesiz)
+assets/js/scenes.js     → Canvas sahnesi: dünya animasyonu (gerektiğinde yüklenir)
 assets/img/             → WebP'ye çevrilmiş, optimize görseller
 assets/video/           → Ana sayfa hero videosu (maxx-hero.mp4)
 assets/fonts/           → Rethink Sans (kendi sunucudan, Google'a istek yok)

@@ -2836,6 +2836,7 @@ const server = http.createServer(async (req, res) => {
 
     /* ---- Dinamik sitemap: yeni ürünleri de ekle ---- */
     if (url.pathname === "/sitemap.xml" && store.customProducts.length) {
+      const BASE = "https://www.maxx-global.net";
       let xml = fs.readFileSync(path.join(ROOT, "sitemap.xml"), "utf8");
       const extra = store.customProducts.map((c) =>
         `  <url><loc>${BASE}/${c.slug}/</loc>\n    <xhtml:link rel="alternate" hreflang="tr" href="${BASE}/${c.slug}/"/>\n    <xhtml:link rel="alternate" hreflang="en" href="${BASE}/${c.slug}-en/"/>\n    <priority>0.7</priority></url>\n` +
